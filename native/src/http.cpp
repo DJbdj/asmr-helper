@@ -200,13 +200,18 @@ static bool httpGet(const std::string& url, const std::vector<std::string>& head
         WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &flags, sizeof(flags));
     }
 
-    // Add custom headers
-    for (const auto& h : headers) {
-        int len = MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, nullptr, 0);
-        std::wstring wh(len, 0);
-        MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, &wh[0], len);
-        wh.pop_back();
-        WinHttpAddRequestHeadersW(hRequest, wh.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
+    // Add custom headers - combine into single CRLF-delimited wide string
+    if (!headers.empty()) {
+        std::wstring combinedHeaders;
+        for (const auto& h : headers) {
+            int len = MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, nullptr, 0);
+            std::wstring wh(len, 0);
+            MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, &wh[0], len);
+            wh.pop_back(); // remove null terminator
+            combinedHeaders += wh;
+            combinedHeaders += L"\r\n";
+        }
+        WinHttpAddRequestHeaders(hRequest, combinedHeaders.c_str(), -1L, WINHTTP_ADDREQ_FLAG_ADD);
     }
 
     if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
@@ -286,12 +291,18 @@ static bool httpDownloadFile(const std::string& url, const std::string& savePath
         WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &flags, sizeof(flags));
     }
 
-    for (const auto& h : headers) {
-        int len = MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, nullptr, 0);
-        std::wstring wh(len, 0);
-        MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, &wh[0], len);
-        wh.pop_back();
-        WinHttpAddRequestHeadersW(hRequest, wh.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
+    // Add custom headers - combine into single CRLF-delimited wide string
+    if (!headers.empty()) {
+        std::wstring combinedHeaders;
+        for (const auto& h : headers) {
+            int len = MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, nullptr, 0);
+            std::wstring wh(len, 0);
+            MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, &wh[0], len);
+            wh.pop_back();
+            combinedHeaders += wh;
+            combinedHeaders += L"\r\n";
+        }
+        WinHttpAddRequestHeaders(hRequest, combinedHeaders.c_str(), -1L, WINHTTP_ADDREQ_FLAG_ADD);
     }
 
     if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
