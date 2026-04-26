@@ -201,20 +201,12 @@ static bool httpGet(const std::string& url, const std::vector<std::string>& head
     }
 
     // Add custom headers
-    std::wstring wHeaders;
     for (const auto& h : headers) {
         int len = MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, nullptr, 0);
         std::wstring wh(len, 0);
         MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, &wh[0], len);
         wh.pop_back();
-        wHeaders += wh;
-        wHeaders += L"\r\n";
-    }
-    if (!wHeaders.empty()) {
-        WinHttpAddRequestHeadersA(hRequest, headers[0].c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
-        for (size_t i = 1; i < headers.size(); i++) {
-            WinHttpAddRequestHeadersA(hRequest, headers[i].c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
-        }
+        WinHttpAddRequestHeadersW(hRequest, wh.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
     }
 
     if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
@@ -295,7 +287,11 @@ static bool httpDownloadFile(const std::string& url, const std::string& savePath
     }
 
     for (const auto& h : headers) {
-        WinHttpAddRequestHeadersA(hRequest, h.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
+        int len = MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, nullptr, 0);
+        std::wstring wh(len, 0);
+        MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, &wh[0], len);
+        wh.pop_back();
+        WinHttpAddRequestHeadersW(hRequest, wh.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
     }
 
     if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
