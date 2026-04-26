@@ -36,7 +36,7 @@ target_include_directories(asmr-helper PRIVATE ${SRC_DIR})
 # Compiler-specific options
 if(MSVC)
     target_compile_options(asmr-helper PRIVATE /W3 /utf-8)
-    target_compile_definitions(asmr-helper PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(asmr-helper PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS)
 else()
     target_compile_options(asmr-helper PRIVATE -Wall -O2)
 endif()
