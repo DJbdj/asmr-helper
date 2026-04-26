@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 99)
 
 # FFmpeg static linking option
-option(FFMPEG_STATIC "Statically link FFmpeg libraries (no external FFmpeg binary needed)" OFF)
+set(FFMPEG_STATIC OFF CACHE BOOL "Statically link FFmpeg libraries (no external FFmpeg binary needed)")
 
 # Source directory
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
