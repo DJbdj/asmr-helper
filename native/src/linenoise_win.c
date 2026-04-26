@@ -23,6 +23,8 @@ static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
 static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
+/* Forward declarations */
+static void disableRawMode(int fd);
 static char *linenoiseNoTTY(void);
 static void refreshLineWithCompletion(struct linenoiseState *ls, linenoiseCompletions *lc, int flags);
 static void refreshLineWithFlags(struct linenoiseState *l, int flags);
@@ -207,8 +209,8 @@ static void freeHistory(void) {
     history = NULL;
 }
 
-void linenoiseHistorySetMaxLen(int len) {
-    if (len < 1) return;
+int linenoiseHistorySetMaxLen(int len) {
+    if (len < 1) return 0;
     if (history) {
         while (history_len > len) {
             free(history[history_len - 1]);
@@ -216,6 +218,7 @@ void linenoiseHistorySetMaxLen(int len) {
         }
     }
     history_max_len = len;
+    return 1;
 }
 
 int linenoiseHistoryAdd(const char *line) {
