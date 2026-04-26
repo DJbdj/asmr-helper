@@ -226,6 +226,10 @@ std::string platformGetBinaryName(const std::string& name) {
 
 void platformInitConsole() {
 #ifdef _WIN32
+    // Set console code page to UTF-8 for proper Chinese character display
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
     HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
     if (hConsole == INVALID_HANDLE_VALUE) return;
     DWORD mode = 0;
