@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "project-iconfont": {
+      "command": "npx",
+      "args": [
+        "@liangshanli/mcp-server-icon"
+      ],
+      "env": {
+        "LANGUAGE": "zh-CN",
+        "WEB_SERVER_AUTO_OPEN": "false"
+      }
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--browser-url=http://localhost:9222",
+        "--no-localstorage"
+      ],
+      "env": {}
+    }
+  }
+}

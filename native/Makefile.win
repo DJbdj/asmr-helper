@@ -1,0 +1,39 @@
+# ASMR Helper - Windows Makefile (MinGW-w64)
+# 使用 Qt 自带的 MinGW 工具链
+
+MINGW_BIN = D:/Qt/Qt6/Tools/mingw1310_64/bin
+CC = $(MINGW_BIN)/gcc.exe
+CXX = $(MINGW_BIN)/g++.exe
+
+CXXFLAGS = -std=c++17 -Wall -O2 -Isrc
+CFLAGS = -Wall -O2 -Isrc
+LDFLAGS = -lcurl -lshlwapi
+
+SRCDIR = src
+BUILDDIR = build
+TARGET = $(BUILDDIR)/asmr-helper.exe
+
+CPP_SRCS = $(wildcard $(SRCDIR)/*.cpp)
+C_SRCS = $(SRCDIR)/linenoise.c
+SRCS = $(CPP_SRCS) $(C_SRCS)
+OBJS = $(patsubst $(SRCDIR)/%.cpp,$(BUILDDIR)/%.o,$(CPP_SRCS)) \
+       $(BUILDDIR)/linenoise.o
+
+all: $(TARGET)
+
+$(BUILDDIR):
+	mkdir -p $(BUILDDIR)
+
+$(BUILDDIR)/%.o: $(SRCDIR)/%.cpp | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILDDIR)/linenoise.o: $(SRCDIR)/linenoise.c | $(BUILDDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
+clean:
+	rm -rf $(BUILDDIR)
+
+.PHONY: all clean
