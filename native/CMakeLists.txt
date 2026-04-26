@@ -54,33 +54,59 @@ if(FFMPEG_STATIC)
     target_compile_definitions(asmr-helper PRIVATE USE_FFMPEG_STATIC)
 
     if(WIN32)
-        # Windows: find FFmpeg via pkg-config or vcpkg
-        find_package(PkgConfig QUIET)
-        if(PKG_CONFIG_FOUND)
-            pkg_check_modules(FFMPEG REQUIRED
-                libavformat libavcodec libavfilter libavutil libswscale libswresample)
-            target_include_directories(asmr-helper PRIVATE ${FFMPEG_INCLUDE_DIRS})
-            target_link_directories(asmr-helper PRIVATE ${FFMPEG_LIBRARY_DIRS})
-            target_link_libraries(asmr-helper PRIVATE ${FFMPEG_LIBRARIES})
+        # Priority 1: Check project-local ffmpeg-dev/ directory (setup-ffmpeg-dev.ps1)
+        set(FFMPEG_DEV_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-dev")
+        if(EXISTS "${FFMPEG_DEV_DIR}/include/libavformat/avformat.h")
+            message(STATUS "Found FFmpeg dev libraries in ffmpeg-dev/ (local)")
+            target_include_directories(asmr-helper PRIVATE "${FFMPEG_DEV_DIR}/include")
+            target_link_directories(asmr-helper PRIVATE "${FFMPEG_DEV_DIR}/lib")
+            target_link_libraries(asmr-helper PRIVATE
+                avformat avcodec avfilter avutil swscale swresample
+                bcrypt secur32)
         else()
-            # Fallback: try to find FFmpeg directly
-            find_path(FFMPEG_INCLUDE_DIR libavformat/avformat.h)
-            find_library(AVFORMAT_LIB avformat)
-            find_library(AVCODEC_LIB avcodec)
-            find_library(AVFILTER_LIB avfilter)
-            find_library(AVUTIL_LIB avutil)
-            find_library(SWSCALE_LIB swscale)
-            find_library(SWRESAMPLE_LIB swresample)
-            if(FFMPEG_INCLUDE_DIR AND AVFORMAT_LIB AND AVCODEC_LIB AND AVFILTER_LIB AND AVUTIL_LIB AND SWSCALE_LIB AND SWRESAMPLE_LIB)
-                target_include_directories(asmr-helper PRIVATE ${FFMPEG_INCLUDE_DIR})
-                target_link_libraries(asmr-helper PRIVATE ${AVFORMAT_LIB} ${AVCODEC_LIB} ${AVFILTER_LIB} ${AVUTIL_LIB} ${SWSCALE_LIB} ${SWRESAMPLE_LIB})
+            # Priority 2: Try pkg-config
+            find_package(PkgConfig QUIET)
+            if(PKG_CONFIG_FOUND)
+                pkg_check_modules(FFMPEG QUIET
+                    libavformat libavcodec libavfilter libavutil libswscale libswresample)
+                if(FFMPEG_FOUND)
+                    message(STATUS "Found FFmpeg via pkg-config")
+                    target_include_directories(asmr-helper PRIVATE ${FFMPEG_INCLUDE_DIRS})
+                    target_link_directories(asmr-helper PRIVATE ${FFMPEG_LIBRARY_DIRS})
+                    target_link_libraries(asmr-helper PRIVATE ${FFMPEG_LIBRARIES} bcrypt secur32)
+                else()
+                    # Priority 3: find_library fallback
+                    find_path(FFMPEG_INCLUDE_DIR libavformat/avformat.h)
+                    find_library(AVFORMAT_LIB avformat)
+                    find_library(AVCODEC_LIB avcodec)
+                    find_library(AVFILTER_LIB avfilter)
+                    find_library(AVUTIL_LIB avutil)
+                    find_library(SWSCALE_LIB swscale)
+                    find_library(SWRESAMPLE_LIB swresample)
+                    if(FFMPEG_INCLUDE_DIR AND AVFORMAT_LIB)
+                        message(STATUS "Found FFmpeg via find_library")
+                        target_include_directories(asmr-helper PRIVATE ${FFMPEG_INCLUDE_DIR})
+                        target_link_libraries(asmr-helper PRIVATE
+                            ${AVFORMAT_LIB} ${AVCODEC_LIB} ${AVFILTER_LIB}
+                            ${AVUTIL_LIB} ${SWSCALE_LIB} ${SWRESAMPLE_LIB}
+                            bcrypt secur32)
+                    else()
+                        message(FATAL_ERROR
+                            "FFmpeg dev libraries not found.\n"
+                            "Run this script to download them automatically:\n"
+                            "  powershell -ExecutionPolicy Bypass -File scripts\\setup-ffmpeg-dev.ps1")
+                    endif()
+                endif()
             else()
-                message(FATAL_ERROR "FFmpeg libraries not found. Install FFmpeg dev libraries or use vcpkg.")
+                message(FATAL_ERROR
+                    "FFmpeg dev libraries not found.\n"
+                    "Run this script to download them automatically:\n"
+                    "  powershell -ExecutionPolicy Bypass -File scripts\\setup-ffmpeg-dev.ps1")
             endif()
         endif()
 
-        # Windows extra libs
-        target_link_libraries(asmr-helper PRIVATE winhttp shlwapi ws2_32 bcrypt secur32)
+        # Common Windows libs
+        target_link_libraries(asmr-helper PRIVATE winhttp shlwapi ws2_32)
     else()
         # Unix/Linux: use pkg-config
         find_package(PkgConfig REQUIRED)
