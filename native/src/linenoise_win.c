@@ -135,8 +135,8 @@ static size_t getTerminalColumns(void) {
     return 80;
 }
 
-/* Move cursor to absolute position (x, y) — 0-based */
-static void cursorMoveTo(int x, int y) {
+/* Move cursor to absolute position (x, y) — 0-based (unused, kept for reference) */
+__attribute__((unused)) static void cursorMoveTo(int x, int y) {
     HANDLE hOut = getOutputHandle();
     if (hOut == INVALID_HANDLE_VALUE) return;
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -146,8 +146,8 @@ static void cursorMoveTo(int x, int y) {
     }
 }
 
-/* Move cursor forward n columns */
-static void cursorForward(int n) {
+/* Move cursor forward n columns (unused, kept for reference) */
+__attribute__((unused)) static void cursorForward(int n) {
     HANDLE hOut = getOutputHandle();
     if (hOut == INVALID_HANDLE_VALUE) return;
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -158,8 +158,8 @@ static void cursorForward(int n) {
     }
 }
 
-/* Move cursor backward n columns */
-static void cursorBackward(int n) {
+/* Move cursor backward n columns (unused, kept for reference) */
+__attribute__((unused)) static void cursorBackward(int n) {
     HANDLE hOut = getOutputHandle();
     if (hOut == INVALID_HANDLE_VALUE) return;
     CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -298,46 +298,65 @@ static linenoiseCompletions *getCompletions(struct linenoiseState *l) {
 
 /* ========================= Line Refresh =================================== */
 
-static int cursorPositionInBuffer(struct linenoiseState *l) {
+__attribute__((unused)) static int cursorPositionInBuffer(struct linenoiseState *l) {
     return utf8DisplayLen(l->buf, l->pos);
 }
 
 static void refreshLineWithFlags(struct linenoiseState *l, int flags) {
-    HANDLE hOut = getOutputHandle();
     (void)flags;
 
-    /* Move cursor to beginning of the line */
-    if (l->ofd >= 0) {
-        printf("\r");
-        fflush(stdout);
-    }
+    /* Build output buffer using abuf pattern (like Unix linenoise) */
+    char abuf[4096];
+    int ablen = 0;
+
+    /* Cursor to left edge */
+    abuf[ablen++] = '\r';
 
     /* Print prompt + buffer */
-    printf("%s", l->prompt);
-    fwrite(l->buf, 1, l->len, stdout);
-    clearLineEnd();
-    fflush(stdout);
+    int plen = (int)strlen(l->prompt);
+    int total = plen + l->len;
+    if (ablen + total + 64 < (int)sizeof(abuf)) {
+        memcpy(abuf + ablen, l->prompt, plen);
+        ablen += plen;
+        if (l->len > 0) {
+            memcpy(abuf + ablen, l->buf, l->len);
+            ablen += l->len;
+        }
+    }
 
-    /* Position cursor */
-    int plen = utf8DisplayLen(l->prompt, strlen(l->prompt));
-    int cpos = cursorPositionInBuffer(l);
-    int col = plen + cpos;
+    /* Erase to right */
+    abuf[ablen++] = '\x1b';
+    abuf[ablen++] = '[';
+    abuf[ablen++] = '0';
+    abuf[ablen++] = 'K';
+
+    /* Position cursor: calculate display column and use ANSI CUF */
+    int promptWidth = utf8DisplayLen(l->prompt, strlen(l->prompt));
+    int cursorWidth = utf8DisplayLen(l->buf, l->pos);
+    int col = promptWidth + cursorWidth;
     int cols = (int)getTerminalColumns();
-    int row = col / cols;
-    int x = col % cols;
 
     if (mlmode) {
-        /* Multi-line: move cursor up `row` rows, then forward `x` */
-        if (row > 0) printf("\033[%dA", row);
-        if (x > 0) cursorForward(x);
-        else if (x == 0 && row > 0) {
-            /* Cursor should be at start of first line */
+        /* Multi-line: calculate row and column */
+        int row = col / cols;
+        int x = col % cols;
+        if (row > 0) {
+            ablen += snprintf(abuf + ablen, sizeof(abuf) - ablen, "\x1b[%dA", row);
+        }
+        if (x > 0) {
+            ablen += snprintf(abuf + ablen, sizeof(abuf) - ablen, "\x1b[%dC", x);
         }
     } else {
-        /* Single-line: just move to column x */
-        cursorMoveTo(x, 0);
+        /* Single-line: move cursor to column */
+        if (col > 0) {
+            ablen += snprintf(abuf + ablen, sizeof(abuf) - ablen, "\x1b[%dC", col);
+        }
     }
-    fflush(stdout);
+
+    /* Write all at once */
+    DWORD written;
+    HANDLE hOut = getOutputHandle();
+    WriteFile(hOut, abuf, ablen, &written, NULL);
 }
 
 static void refreshLine(struct linenoiseState *l) {
@@ -364,13 +383,26 @@ static int editInsert(struct linenoiseState *l, const char *text, size_t len) {
     return 1;
 }
 
-/* Read a UTF-8 character from console input. Returns number of bytes read,
- * or 0 on EOF/error. Sets *outChar to point to the bytes in outBuf. */
-static int readUnicodeChar(char *outBuf, int *vkCode) {
+/* Read input from console. In raw mode, use ReadFile to read raw bytes
+ * from stdin (like Unix read()). For non-raw fallback, use ReadConsoleInputA.
+ * Returns number of bytes read into outBuf, or 0 on EOF/error.
+ * Sets *vkCode to the virtual key code for special keys. */
+static int readConsoleInput(char *outBuf, int *vkCode) {
     HANDLE hIn = getInputHandle();
     INPUT_RECORD ir;
     DWORD read;
 
+    /* In raw mode, try ReadFile first (reads raw console input as bytes) */
+    if (rawmode) {
+        char ch;
+        if (ReadFile(hIn, &ch, 1, &read, NULL) && read == 1) {
+            *vkCode = 0;
+            outBuf[0] = ch;
+            return 1;
+        }
+    }
+
+    /* Fallback: use ReadConsoleInputA for key events */
     while (1) {
         if (!ReadConsoleInputA(hIn, &ir, 1, &read)) return 0;
         if (read == 0) return 0;
@@ -380,17 +412,16 @@ static int readUnicodeChar(char *outBuf, int *vkCode) {
         WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
         *vkCode = vk;
 
-        /* Handle modifier keys — return virtual key for navigation */
+        /* Special keys — return virtual key code */
         if (vk == VK_RETURN || vk == VK_BACK || vk == VK_ESCAPE ||
             vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
             vk == VK_DELETE || vk == VK_HOME || vk == VK_END || vk == VK_TAB) {
-            /* Check if there's an ASCII character too */
-            char ch = ir.Event.KeyEvent.uChar.AsciiChar;
-            if (ch != 0) {
-                outBuf[0] = ch;
+            char asciiCh = ir.Event.KeyEvent.uChar.AsciiChar;
+            if (asciiCh != 0) {
+                outBuf[0] = asciiCh;
                 return 1;
             }
-            /* For navigation keys without ASCII, return VK in high byte convention */
+            /* Return VK code in outBuf: [0, vk_low_byte] */
             outBuf[0] = 0;
             outBuf[1] = (char)(vk & 0xFF);
             return 2;
@@ -425,7 +456,7 @@ static int readUnicodeChar(char *outBuf, int *vkCode) {
 
 static int linenoiseEditFeedRaw(struct linenoiseState *l, char *outBuf) {
     int vkCode = 0;
-    int nread = readUnicodeChar(outBuf, &vkCode);
+    int nread = readConsoleInput(outBuf, &vkCode);
     if (nread == 0) return 0; /* EOF */
     if (nread == 2 && outBuf[0] == 0) {
         /* Virtual key code */
@@ -449,8 +480,10 @@ static void linenoiseAtExit(void) {
 }
 
 void linenoiseClearScreen(void) {
-    printf("\033[2J\033[H");
-    fflush(stdout);
+    const char seq[] = "\033[2J\033[H";
+    DWORD written;
+    HANDLE hOut = getOutputHandle();
+    WriteFile(hOut, seq, sizeof(seq) - 1, &written, NULL);
 }
 
 /* =========================== Raw Mode ===================================== */
@@ -465,7 +498,7 @@ static int enableRawMode(int fd) {
     /* Get current console mode */
     DWORD mode_in = 0, mode_out = 0;
     if (!GetConsoleMode(hIn, &mode_in)) return -1;
-    GetConsoleMode(hOut, &mode_out);
+    if (!GetConsoleMode(hOut, &mode_out)) return -1;
 
     /* Save original mode */
     orig_console_mode = mode_in;
@@ -474,9 +507,10 @@ static int enableRawMode(int fd) {
     mode_out |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT;
     SetConsoleMode(hOut, mode_out);
 
-    /* Disable line input, echo, processed input; enable window input */
-    DWORD new_mode_in = ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS;
-    /* Don't set ENABLE_QUICK_EDIT_MODE to allow mouse selection */
+    /* Disable line input, echo, processed input; enable window input.
+     * Keep QUICK_EDIT_MODE disabled so mouse selection doesn't interfere.
+     * ENABLE_EXTENDED_FLAGS is needed to properly disable quick edit. */
+    DWORD new_mode_in = ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS;
     SetConsoleMode(hIn, new_mode_in);
 
     rawmode = 1;
@@ -539,7 +573,9 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
     if (nread == 0) {
         /* EOF */
         disableRawMode(l->ifd);
-        printf("\n");
+        DWORD written;
+        HANDLE hOut = getOutputHandle();
+        WriteFile(hOut, "\n", 1, &written, NULL);
         return linenoiseNoTTY();
     }
 
@@ -550,14 +586,23 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
         switch (vk) {
         case VK_RETURN:
             disableRawMode(l->ifd);
-            printf("\r\n");
+            /* Use WriteFile for consistent output */
+            {
+                DWORD written;
+                HANDLE hOut = getOutputHandle();
+                WriteFile(hOut, "\r\n", 2, &written, NULL);
+            }
             fflush(stdout);
             l->buf[l->len] = '\0';
             return strdup(l->buf);
 
         case VK_ESCAPE:
             disableRawMode(l->ifd);
-            printf("\n");
+            {
+                DWORD written;
+                HANDLE hOut = getOutputHandle();
+                WriteFile(hOut, "\n", 1, &written, NULL);
+            }
             fflush(stdout);
             return NULL;
 
@@ -680,6 +725,7 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
                     for (size_t i = 0; i < lc.len; i++) {
                         printf("  %s\n", lc.cvec[i]);
                     }
+                    fflush(stdout);
                     refreshLine(l);
                 }
                 freeCompletions(&lc);
@@ -740,8 +786,9 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
 
 void linenoiseEditStop(struct linenoiseState *l) {
     disableRawMode(l->ifd);
-    printf("\n");
-    fflush(stdout);
+    DWORD written;
+    HANDLE hOut = getOutputHandle();
+    WriteFile(hOut, "\n", 1, &written, NULL);
 }
 
 void linenoiseHide(struct linenoiseState *l) {
