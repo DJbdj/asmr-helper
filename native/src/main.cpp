@@ -1,6 +1,11 @@
 #include <iostream>
 #include <string>
-#include <curl/curl.h>
+
+#ifdef _WIN32
+    #include <winsock2.h>
+#else
+    #include <curl/curl.h>
+#endif
 
 #include "ui.h"
 #include "video.h"
@@ -19,7 +24,12 @@ int main(int argc, char* argv[]) {
 
     // 初始化
     platformInitConsole();
+#ifdef _WIN32
+    // Windows: WinHTTP 不需要全局初始化
+    (void) argc;
+#else
     curl_global_init(CURL_GLOBAL_DEFAULT);
+#endif
     initReadline();
 
     bool running = true;
@@ -157,9 +167,9 @@ int main(int argc, char* argv[]) {
             std::cout << "  [2] 音频生成视频 - 用图片作为背景，生成带有音频的视频" << std::endl;
             std::cout << std::endl;
             std::cout << "  图片来源：" << std::endl;
-            std::cout << "  \u2022 Pexels 高质量壁纸（需英文关键词）" << std::endl;
-            std::cout << "  \u2022 图片 URL" << std::endl;
-            std::cout << "  \u2022 本地图片文件" << std::endl;
+            std::cout << "  • Pexels 高质量壁纸（需英文关键词）" << std::endl;
+            std::cout << "  • 图片 URL" << std::endl;
+            std::cout << "  • 本地图片文件" << std::endl;
             std::cout << std::endl;
             std::cout << "  支持格式：" << std::endl;
             std::cout << "  视频：mp4, mkv, avi, mov, webm" << std::endl;
@@ -173,7 +183,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
+#ifndef _WIN32
     curl_global_cleanup();
+#endif
 
     clearScreen();
     std::cout << COLOR_CYAN << "  感谢使用 ASMR Helper!" << COLOR_RESET << std::endl;

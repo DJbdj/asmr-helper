@@ -1,19 +1,20 @@
 #include "http.h"
 #include "ui.h"
-#include <curl/curl.h>
 #include <iostream>
 #include <cstdio>
+#include <vector>
+
+#ifdef _WIN32
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <winhttp.h>
+    #pragma comment(lib, "winhttp.lib")
+#else
+    #include <curl/curl.h>
+#endif
 
 const std::string PEXELS_API_KEY = "sEgMIfajDuYkADrF3sfyAuT0vptn1tl1hdswMQi7fJYEHHxbsLexKNPp";
 const std::string PEXELS_BASE_URL = "https://api.pexels.com/v1/";
-
-// ============== CURL 回调 ==============
-
-static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
-    size_t total_size = size * nmemb;
-    userp->append((char*)contents, total_size);
-    return total_size;
-}
 
 // ============== URL 与 JSON 工具 ==============
 
@@ -22,7 +23,7 @@ std::string urlEncode(const std::string& str) {
     std::string encoded;
     for (char c : str) {
         if (c == ' ') encoded += "%20";
-        else if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') encoded += c;
+        else if (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.' || c == '~') encoded += c;
         else {
             encoded += '%';
             encoded += hex[(unsigned char)c >> 4];
@@ -130,106 +131,338 @@ std::string extractPexelsPhotoUrl(const std::string& json) {
     return "";
 }
 
-// ============== Pexels 搜索 ==============
+// ============== HTTP 请求（跨平台） ==============
 
-std::string searchImagePexels(const std::string& query) {
-    CURL* curl = curl_easy_init();
-    if (!curl) return "";
+// Parse URL into host, path, and whether it's HTTPS
+[[maybe_unused]] static bool parseUrl(const std::string& url, std::string& outHost, std::string& outPath, bool& outHttps) {
+    size_t protoEnd = url.find("://");
+    if (protoEnd == std::string::npos) return false;
 
-    std::string url = PEXELS_BASE_URL + "search?query=" + urlEncode(query) + "&per_page=15&orientation=landscape";
+    std::string proto = url.substr(0, protoEnd);
+    outHttps = (proto == "https");
 
-    std::string response_body;
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, ("Authorization: " + PEXELS_API_KEY).c_str());
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-
-    CURLcode res = curl_easy_perform(curl);
-    std::string image_url;
-
-    if (res == CURLE_OK) {
-        image_url = extractPexelsPhotoUrl(response_body);
+    size_t hostStart = protoEnd + 3;
+    size_t pathStart = url.find('/', hostStart);
+    if (pathStart == std::string::npos) {
+        outHost = url.substr(hostStart);
+        outPath = "/";
+    } else {
+        outHost = url.substr(hostStart, pathStart - hostStart);
+        outPath = url.substr(pathStart);
     }
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-    return image_url;
+    return true;
 }
 
-// ============== 图片下载 ==============
+#ifdef _WIN32
+// Windows: WinHTTP implementation
+static bool httpGet(const std::string& url, const std::vector<std::string>& headers,
+                    std::string& outBody, long& outStatus, int timeoutMs) {
+    std::string host, path;
+    bool isHttps;
+    if (!parseUrl(url, host, path, isHttps)) return false;
 
-bool downloadImage(const std::string& url, const std::string& save_path) {
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        std::cerr << "  CURL 初始化失败" << std::endl;
+    outStatus = 0;
+    outBody.clear();
+
+    // Convert host/path to wide strings
+    int hostLen = MultiByteToWideChar(CP_UTF8, 0, host.c_str(), -1, nullptr, 0);
+    std::wstring wHost(hostLen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, host.c_str(), -1, &wHost[0], hostLen);
+    wHost.pop_back(); // remove null terminator
+
+    int pathLen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    std::wstring wPath(pathLen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wPath[0], pathLen);
+    wPath.pop_back();
+
+    HINTERNET hSession = WinHttpOpen(L"ASMR Helper/1.0",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return false;
+
+    // Set timeouts
+    WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+
+    HINTERNET hConnect = WinHttpConnect(hSession, wHost.c_str(),
+        isHttps ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT, 0);
+    if (!hConnect) { WinHttpCloseHandle(hSession); return false; }
+
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", wPath.c_str(),
+        nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+        isHttps ? WINHTTP_FLAG_SECURE : 0);
+    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return false; }
+
+    // Ignore SSL certificate errors
+    if (isHttps) {
+        DWORD flags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+                      SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                      SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &flags, sizeof(flags));
+    }
+
+    // Add custom headers
+    std::wstring wHeaders;
+    for (const auto& h : headers) {
+        int len = MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, nullptr, 0);
+        std::wstring wh(len, 0);
+        MultiByteToWideChar(CP_UTF8, 0, h.c_str(), -1, &wh[0], len);
+        wh.pop_back();
+        wHeaders += wh;
+        wHeaders += L"\r\n";
+    }
+    if (!wHeaders.empty()) {
+        WinHttpAddRequestHeadersA(hRequest, headers[0].c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
+        for (size_t i = 1; i < headers.size(); i++) {
+            WinHttpAddRequestHeadersA(hRequest, headers[i].c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
+        }
+    }
+
+    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
         return false;
     }
 
-    FILE* file = fopen(save_path.c_str(), "wb");
+    if (!WinHttpReceiveResponse(hRequest, nullptr)) {
+        WinHttpCloseHandle(hRequest);
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    // Get status code
+    DWORD statusCode = 0;
+    DWORD statusSize = sizeof(statusCode);
+    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
+    outStatus = (long)statusCode;
+
+    // Read response body
+    char buffer[4096];
+    DWORD bytesRead = 0;
+    while (WinHttpReadData(hRequest, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0) {
+        outBody.append(buffer, bytesRead);
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return true;
+}
+
+// WinHTTP file download
+static bool httpDownloadFile(const std::string& url, const std::string& savePath,
+                              const std::vector<std::string>& headers, long& outStatus, int timeoutMs) {
+    std::string host, path;
+    bool isHttps;
+    if (!parseUrl(url, host, path, isHttps)) return false;
+
+    outStatus = 0;
+
+    int hostLen = MultiByteToWideChar(CP_UTF8, 0, host.c_str(), -1, nullptr, 0);
+    std::wstring wHost(hostLen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, host.c_str(), -1, &wHost[0], hostLen);
+    wHost.pop_back();
+
+    int pathLen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    std::wstring wPath(pathLen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wPath[0], pathLen);
+    wPath.pop_back();
+
+    HINTERNET hSession = WinHttpOpen(L"ASMR Helper/1.0",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return false;
+
+    WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
+
+    HINTERNET hConnect = WinHttpConnect(hSession, wHost.c_str(),
+        isHttps ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT, 0);
+    if (!hConnect) { WinHttpCloseHandle(hSession); return false; }
+
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", wPath.c_str(),
+        nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+        isHttps ? WINHTTP_FLAG_SECURE : 0);
+    if (!hRequest) { WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession); return false; }
+
+    if (isHttps) {
+        DWORD flags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+                      SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                      SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &flags, sizeof(flags));
+    }
+
+    for (const auto& h : headers) {
+        WinHttpAddRequestHeadersA(hRequest, h.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
+    }
+
+    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+        WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    if (!WinHttpReceiveResponse(hRequest, nullptr)) {
+        WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    DWORD statusCode = 0;
+    DWORD statusSize = sizeof(statusCode);
+    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
+    outStatus = (long)statusCode;
+
+    FILE* file = fopen(savePath.c_str(), "wb");
     if (!file) {
-        std::cerr << "  无法创建文件：" << save_path << std::endl;
-        curl_easy_cleanup(curl);
+        WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
         return false;
     }
 
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-    headers = curl_slist_append(headers, "Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
-    headers = curl_slist_append(headers, "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8");
-    headers = curl_slist_append(headers, "Referer: https://www.msn.com/");
-    headers = curl_slist_append(headers, "Cache-Control: no-cache");
-    headers = curl_slist_append(headers, "Pragma: no-cache");
+    char buffer[8192];
+    DWORD bytesRead = 0;
+    bool success = true;
+    while (WinHttpReadData(hRequest, buffer, sizeof(buffer), &bytesRead) && bytesRead > 0) {
+        if (fwrite(buffer, 1, bytesRead, file) != bytesRead) {
+            success = false;
+            break;
+        }
+    }
+    fclose(file);
+
+    if (!success) {
+        remove(savePath.c_str());
+    }
+
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return success;
+}
+#else
+// Unix: CURL implementation
+static size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    size_t total = size * nmemb;
+    userp->append((char*)contents, total);
+    return total;
+}
+
+static bool httpGet(const std::string& url, const std::vector<std::string>& headers,
+                    std::string& outBody, long& outStatus, int timeoutMs) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return false;
+
+    outStatus = 0;
+    outBody.clear();
+
+    struct curl_slist* list = nullptr;
+    for (const auto& h : headers) {
+        list = curl_slist_append(list, h.c_str());
+    }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &outBody);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, (long)timeoutMs);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, (long)timeoutMs);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &outStatus);
+    }
+
+    curl_slist_free_all(list);
+    curl_easy_cleanup(curl);
+    return (res == CURLE_OK);
+}
+
+static bool httpDownloadFile(const std::string& url, const std::string& savePath,
+                              const std::vector<std::string>& headers, long& outStatus, int timeoutMs) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return false;
+
+    outStatus = 0;
+
+    FILE* file = fopen(savePath.c_str(), "wb");
+    if (!file) { curl_easy_cleanup(curl); return false; }
+
+    struct curl_slist* list = nullptr;
+    for (const auto& h : headers) {
+        list = curl_slist_append(list, h.c_str());
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullptr);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, (long)timeoutMs);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, (long)timeoutMs);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     CURLcode res = curl_easy_perform(curl);
-
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &outStatus);
 
     fclose(file);
-    curl_slist_free_all(headers);
+    curl_slist_free_all(list);
     curl_easy_cleanup(curl);
 
-    if (res != CURLE_OK) {
-        std::cerr << "  CURL 错误：" << curl_easy_strerror(res) << std::endl;
-        remove(save_path.c_str());
+    if (res != CURLE_OK || outStatus != 200) {
+        remove(savePath.c_str());
         return false;
     }
 
-    if (http_code != 200) {
-        std::cerr << "  HTTP 状态码：" << http_code << std::endl;
-        remove(save_path.c_str());
-        return false;
-    }
-
-    FILE* check = fopen(save_path.c_str(), "rb");
+    // Check file is not empty
+    FILE* check = fopen(savePath.c_str(), "rb");
     if (check) {
         fseek(check, 0, SEEK_END);
         long size = ftell(check);
         fclose(check);
         if (size == 0) {
-            std::cerr << "  下载文件为空" << std::endl;
-            remove(save_path.c_str());
+            remove(savePath.c_str());
             return false;
         }
     }
-
     return true;
+}
+#endif
+
+// ============== Pexels 搜索 ==============
+
+std::string searchImagePexels(const std::string& query) {
+    std::string url = PEXELS_BASE_URL + "search?query=" + urlEncode(query) + "&per_page=15&orientation=landscape";
+
+    std::vector<std::string> headers;
+    headers.push_back("Authorization: " + PEXELS_API_KEY);
+
+    std::string body;
+    long status = 0;
+    if (!httpGet(url, headers, body, status, 30000)) return "";
+    if (status != 200) return "";
+
+    return extractPexelsPhotoUrl(body);
+}
+
+// ============== 图片下载 ==============
+
+bool downloadImage(const std::string& url, const std::string& save_path) {
+    std::vector<std::string> headers;
+    headers.push_back("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+    headers.push_back("Accept: image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+    headers.push_back("Accept-Language: zh-CN,zh;q=0.9,en;q=0.8");
+    headers.push_back("Referer: https://www.msn.com/");
+    headers.push_back("Cache-Control: no-cache");
+    headers.push_back("Pragma: no-cache");
+
+    long status = 0;
+    return httpDownloadFile(url, save_path, headers, status, 120000);
 }

@@ -33,25 +33,25 @@ add_executable(asmr-helper ${ALL_SRCS})
 # Target include directories
 target_include_directories(asmr-helper PRIVATE ${SRC_DIR})
 
-# MSVC-specific options
+# Compiler-specific options
 if(MSVC)
     target_compile_options(asmr-helper PRIVATE /W3 /utf-8)
-    # Disable warnings for C runtime functions
     target_compile_definitions(asmr-helper PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(asmr-helper PRIVATE -Wall -O2)
 endif()
 
-# Find CURL
-find_package(CURL REQUIRED)
-target_link_libraries(asmr-helper PRIVATE CURL::libcurl)
-
-# Platform libraries
+# Platform dependencies
 if(WIN32)
-    target_link_libraries(asmr-helper PRIVATE shlwapi)
+    # Windows: WinHTTP (built-in, no external dependency)
+    target_link_libraries(asmr-helper PRIVATE winhttp shlwapi ws2_32)
+else()
+    # Unix: CURL
+    find_package(CURL REQUIRED)
+    target_link_libraries(asmr-helper PRIVATE CURL::libcurl)
 endif()
 
-# Copy FFmpeg directory to build output (optional, for convenience)
+# Copy FFmpeg directory to build output (Windows convenience)
 if(WIN32)
     add_custom_command(TARGET asmr-helper POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
