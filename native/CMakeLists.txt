@@ -52,7 +52,7 @@ else()
 endif()
 
 # Copy FFmpeg directory to build output (Windows convenience)
-if(WIN32)
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg")
     add_custom_command(TARGET asmr-helper POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg
