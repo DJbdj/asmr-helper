@@ -9,9 +9,13 @@
 #include <iomanip>
 #include <sstream>
 
-#ifdef _WIN32
-    #define popen  _popen
-    #define pclose _pclose
+#ifdef USE_FFMPEG_STATIC
+    #include "ffmpeg_engine.h"
+#else
+    #ifdef _WIN32
+        #define popen  _popen
+        #define pclose _pclose
+    #endif
 #endif
 
 extern std::string g_program_dir;
@@ -78,6 +82,9 @@ static std::string runFFprobe(const std::string& file_path, const std::string& a
 // ============== 媒体信息获取 ==============
 
 bool getVideoInfo(const std::string& video_path, int& width, int& height, double& duration) {
+#ifdef USE_FFMPEG_STATIC
+    return ffmpegGetVideoInfo(video_path, width, height, duration);
+#else
     std::string json = runFFprobe(video_path, "-show_streams -show_format");
     if (json.empty()) return false;
 
@@ -117,9 +124,13 @@ bool getVideoInfo(const std::string& video_path, int& width, int& height, double
     height = std::stoi(h);
     duration = std::stod(dur);
     return true;
+#endif
 }
 
 bool getAudioInfo(const std::string& audio_path, double& duration) {
+#ifdef USE_FFMPEG_STATIC
+    return ffmpegGetAudioInfo(audio_path, duration);
+#else
     std::string json = runFFprobe(audio_path, "-show_format");
     if (json.empty()) return false;
 
@@ -128,9 +139,13 @@ bool getAudioInfo(const std::string& audio_path, double& duration) {
 
     duration = std::stod(dur);
     return true;
+#endif
 }
 
 bool getImageSize(const std::string& image_path, int& width, int& height) {
+#ifdef USE_FFMPEG_STATIC
+    return ffmpegGetImageSize(image_path, width, height);
+#else
     std::string json = runFFprobe(image_path, "-show_streams");
     if (json.empty()) return false;
 
@@ -162,6 +177,7 @@ bool getImageSize(const std::string& image_path, int& width, int& height) {
     width = std::stoi(w);
     height = std::stoi(h);
     return true;
+#endif
 }
 
 // ============== 进度条 ==============
@@ -224,6 +240,11 @@ bool processVideo(const std::string& input_video, const std::string& overlay_ima
     std::cout << "  视频尺寸：" << width << "x" << height << std::endl;
     std::cout << "  视频时长：" << duration << " 秒" << std::endl;
 
+#ifdef USE_FFMPEG_STATIC
+    std::cout << COLOR_YELLOW << "  正在处理（FFmpeg 内嵌模式）..." << COLOR_RESET << std::endl;
+    return ffmpegProcessVideo(input_video, overlay_image, output_path,
+        [](double cur, double tot) { showProgressBar(cur, tot); });
+#else
     std::string ffmpeg_path = getFFmpegPath();
     if (ffmpeg_path.empty()) {
         std::cerr << COLOR_RED << "  错误：未找到 FFmpeg" << COLOR_RESET << std::endl;
@@ -281,6 +302,7 @@ bool processVideo(const std::string& input_video, const std::string& overlay_ima
     }
 
     return true;
+#endif
 }
 
 bool audioToVideo(const std::string& input_audio, const std::string& overlay_image,
@@ -298,6 +320,12 @@ bool audioToVideo(const std::string& input_audio, const std::string& overlay_ima
         std::cout << "  图片尺寸：" << img_w << "x" << img_h << std::endl;
     }
 
+#ifdef USE_FFMPEG_STATIC
+    std::cout << COLOR_YELLOW << "  正在生成视频（FFmpeg 内嵌模式）..." << COLOR_RESET << std::endl;
+    return ffmpegAudioToVideo(input_audio, overlay_image, output_path,
+        output_width, output_height,
+        [](double cur, double tot) { showProgressBar(cur, tot); });
+#else
     std::string ffmpeg_path = getFFmpegPath();
     if (ffmpeg_path.empty()) {
         std::cerr << COLOR_RED << "  错误：未找到 FFmpeg" << COLOR_RESET << std::endl;
@@ -351,6 +379,7 @@ bool audioToVideo(const std::string& input_audio, const std::string& overlay_ima
     }
 
     return true;
+#endif
 }
 
 // ============== 菜单函数 ==============
@@ -388,6 +417,9 @@ void downloadFFmpeg() {
     clearScreen();
     printHeader("下载 FFmpeg");
 
+#ifdef USE_FFMPEG_STATIC
+    std::cout << COLOR_GREEN << "  FFmpeg 已内嵌到程序中，无需下载！" << COLOR_RESET << std::endl;
+#else
     int ret = platformRunDownloadScript();
 
     if (ret == 0) {
@@ -395,6 +427,7 @@ void downloadFFmpeg() {
     } else {
         std::cerr << COLOR_RED << "  下载失败" << COLOR_RESET << std::endl;
     }
+#endif
 
     getUserInput("按回车键继续...");
 }

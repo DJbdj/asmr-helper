@@ -15,7 +15,7 @@ SRCDIR = src
 BUILDDIR = build
 TARGET = asmr-helper
 
-CPP_SRCS = $(wildcard $(SRCDIR)/*.cpp)
+CPP_SRCS = $(filter-out $(SRCDIR)/ffmpeg_engine.cpp,$(wildcard $(SRCDIR)/*.cpp))
 C_SRCS = $(SRCDIR)/linenoise.c
 SRCS = $(CPP_SRCS) $(C_SRCS)
 OBJECTS = $(patsubst $(SRCDIR)/%.cpp,$(BUILDDIR)/%.o,$(CPP_SRCS)) \
