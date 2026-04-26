@@ -324,58 +324,46 @@ static linenoiseCompletions *getCompletions(struct linenoiseState *l) {
 static void refreshLineWithFlags(struct linenoiseState *l, int flags) {
     (void)flags;
 
-    /* Build output buffer using abuf pattern (like Unix linenoise) */
-    char abuf[4096];
-    int ablen = 0;
-
-    /* Cursor to left edge */
-    abuf[ablen++] = '\r';
-
-    /* Print prompt + buffer */
-    int plen = (int)strlen(l->prompt);
-    int total = plen + l->len;
-    if (ablen + total + 64 < (int)sizeof(abuf)) {
-        memcpy(abuf + ablen, l->prompt, plen);
-        ablen += plen;
-        if (l->len > 0) {
-            memcpy(abuf + ablen, l->buf, l->len);
-            ablen += l->len;
-        }
-    }
-
-    /* Erase to right */
-    abuf[ablen++] = '\x1b';
-    abuf[ablen++] = '[';
-    abuf[ablen++] = '0';
-    abuf[ablen++] = 'K';
-
-    /* Position cursor: calculate display column and use ANSI CUF */
+    /* Calculate display width before cursor position changes */
     int promptWidth = utf8DisplayLen(l->prompt, strlen(l->prompt));
     int cursorWidth = utf8DisplayLen(l->buf, l->pos);
     int col = promptWidth + cursorWidth;
     int cols = (int)getTerminalColumns();
 
-    if (mlmode) {
-        /* Multi-line: calculate row and column */
-        int row = col / cols;
-        int x = col % cols;
-        if (row > 0) {
-            ablen += snprintf(abuf + ablen, sizeof(abuf) - ablen, "\x1b[%dA", row);
-        }
-        if (x > 0) {
-            ablen += snprintf(abuf + ablen, sizeof(abuf) - ablen, "\x1b[%dC", x);
-        }
-    } else {
-        /* Single-line: move cursor to column */
-        if (col > 0) {
-            ablen += snprintf(abuf + ablen, sizeof(abuf) - ablen, "\x1b[%dC", col);
+    /* Build output buffer — same order as Unix linenoise:
+     * \r, prompt+buf, ESC[0K, \r ESC[nC
+     * The final \r ESC[nC goes back to column 0 then moves to cursor position. */
+    char obuf[4096];
+    int oblen = 0;
+
+    /* Cursor to left edge */
+    obuf[oblen++] = '\r';
+
+    /* Print prompt + buffer */
+    int plen = (int)strlen(l->prompt);
+    if (oblen + plen + l->len + 64 < (int)sizeof(obuf)) {
+        memcpy(obuf + oblen, l->prompt, plen);
+        oblen += plen;
+        if (l->len > 0) {
+            memcpy(obuf + oblen, l->buf, l->len);
+            oblen += l->len;
         }
     }
+
+    /* Erase to right */
+    obuf[oblen++] = '\x1b';
+    obuf[oblen++] = '[';
+    obuf[oblen++] = '0';
+    obuf[oblen++] = 'K';
+
+    /* Go back to column 0, then move forward to cursor position */
+    obuf[oblen++] = '\r';
+    oblen += snprintf(obuf + oblen, sizeof(obuf) - oblen, "\x1b[%dC", col);
 
     /* Write all at once */
     DWORD written;
     HANDLE hOut = getOutputHandle();
-    WriteFile(hOut, abuf, ablen, &written, NULL);
+    WriteFile(hOut, obuf, oblen, &written, NULL);
 }
 
 static void refreshLine(struct linenoiseState *l) {
