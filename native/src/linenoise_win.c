@@ -135,42 +135,6 @@ static size_t getTerminalColumns(void) {
     return 80;
 }
 
-/* Move cursor to absolute position (x, y) — 0-based (unused, kept for reference) */
-__attribute__((unused)) static void cursorMoveTo(int x, int y) {
-    HANDLE hOut = getOutputHandle();
-    if (hOut == INVALID_HANDLE_VALUE) return;
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    if (GetConsoleScreenBufferInfo(hOut, &csbi)) {
-        COORD pos = {(SHORT)x, (SHORT)(csbi.dwCursorPosition.Y + y)};
-        SetConsoleCursorPosition(hOut, pos);
-    }
-}
-
-/* Move cursor forward n columns (unused, kept for reference) */
-__attribute__((unused)) static void cursorForward(int n) {
-    HANDLE hOut = getOutputHandle();
-    if (hOut == INVALID_HANDLE_VALUE) return;
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    if (GetConsoleScreenBufferInfo(hOut, &csbi)) {
-        COORD pos = csbi.dwCursorPosition;
-        pos.X += (SHORT)n;
-        SetConsoleCursorPosition(hOut, pos);
-    }
-}
-
-/* Move cursor backward n columns (unused, kept for reference) */
-__attribute__((unused)) static void cursorBackward(int n) {
-    HANDLE hOut = getOutputHandle();
-    if (hOut == INVALID_HANDLE_VALUE) return;
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    if (GetConsoleScreenBufferInfo(hOut, &csbi)) {
-        COORD pos = csbi.dwCursorPosition;
-        pos.X -= (SHORT)n;
-        if (pos.X < 0) pos.X = 0;
-        SetConsoleCursorPosition(hOut, pos);
-    }
-}
-
 /* Clear from cursor to end of line */
 static void clearLineEnd(void) {
     HANDLE hOut = getOutputHandle();
@@ -297,10 +261,6 @@ static linenoiseCompletions *getCompletions(struct linenoiseState *l) {
 }
 
 /* ========================= Line Refresh =================================== */
-
-__attribute__((unused)) static int cursorPositionInBuffer(struct linenoiseState *l) {
-    return utf8DisplayLen(l->buf, l->pos);
-}
 
 static void refreshLineWithFlags(struct linenoiseState *l, int flags) {
     (void)flags;
