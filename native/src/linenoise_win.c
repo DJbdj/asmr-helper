@@ -148,15 +148,74 @@ static void clearLineEnd(void) {
     }
 }
 
-/* Count unicode columns for a UTF-8 string (display width) */
+/* Get the display width of a single Unicode codepoint (console cell count) */
+static int utf8CharWidth(uint32_t cp) {
+    /* Control characters and combining marks: zero width */
+    if (cp < 32 || (cp >= 0x7F && cp < 0xA0)) return 0;
+    if (isCombiningMark(cp)) return 0;
+    if (isVariationSelector(cp)) return 0;
+    if (isSkinToneModifier(cp)) return 0;
+    if (isZWJ(cp)) return 0;
+
+    /* Wide character ranges — 2 console cells:
+     * CJK Unified Ideographs, Hangul, Fullwidth forms,
+     * Emoji, Hiragana, Katakana, etc. */
+    if (cp >= 0x1100 &&
+        (cp <= 0x115F ||                      /* Hangul Jamo */
+         cp == 0x2329 || cp == 0x232A ||
+         (cp >= 0x231A && cp <= 0x231B) ||
+         (cp >= 0x23E9 && cp <= 0x23F3) ||
+         (cp >= 0x23F8 && cp <= 0x23FA) ||
+         (cp >= 0x25AA && cp <= 0x25AB) ||
+         (cp >= 0x25B6 && cp <= 0x25C0) ||
+         (cp >= 0x25FB && cp <= 0x25FE) ||
+         (cp >= 0x2600 && cp <= 0x26FF) ||
+         (cp >= 0x2700 && cp <= 0x27BF) ||
+         (cp >= 0x2934 && cp <= 0x2935) ||
+         (cp >= 0x2B05 && cp <= 0x2B07) ||
+         (cp >= 0x2B1B && cp <= 0x2B1C) ||
+         cp == 0x2B50 || cp == 0x2B55 ||
+         (cp >= 0x2E80 && cp <= 0xA4CF &&
+          cp != 0x303F) ||
+         (cp >= 0xAC00 && cp <= 0xD7A3) ||
+         (cp >= 0xF900 && cp <= 0xFAFF) ||
+         (cp >= 0xFE10 && cp <= 0xFE1F) ||
+         (cp >= 0xFE30 && cp <= 0xFE6F) ||
+         (cp >= 0xFF00 && cp <= 0xFF60) ||
+         (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+         (cp >= 0x1F1E6 && cp <= 0x1F1FF) ||
+         (cp >= 0x1F300 && cp <= 0x1F64F) ||
+         (cp >= 0x1F680 && cp <= 0x1F6FF) ||
+         (cp >= 0x1F900 && cp <= 0x1F9FF) ||
+         (cp >= 0x1FA00 && cp <= 0x1FAFF) ||
+         (cp >= 0x20000 && cp <= 0x2FFFF)))
+        return 2;
+
+    return 1;
+}
+
+/* Count display width (console columns) of a UTF-8 string.
+ * Skips ANSI escape sequences and handles grapheme clusters. */
 static int utf8DisplayLen(const char *buf, size_t len) {
     int w = 0;
     size_t i = 0;
     while (i < len) {
         size_t cplen;
         uint32_t cp = utf8DecodeChar(buf + i, &cplen);
+
+        /* Skip ANSI CSI escape sequences */
+        if (cp == 0x1B && i + 1 < len && buf[i + 1] == '[') {
+            size_t j = i + 2;
+            while (j < len && (unsigned char)buf[j] >= 0x30 && (unsigned char)buf[j] <= 0x3f) j++;
+            while (j < len && (unsigned char)buf[j] >= 0x20 && (unsigned char)buf[j] <= 0x2f) j++;
+            if (j < len && (unsigned char)buf[j] >= 0x40 && (unsigned char)buf[j] <= 0x7e) {
+                i = j + 1;
+                continue;
+            }
+        }
+
         if (!isGraphemeExtend(cp) && !isZWJ(cp)) {
-            w += 1;
+            w += utf8CharWidth(cp);
         }
         i += cplen;
     }
@@ -352,17 +411,6 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
     INPUT_RECORD ir;
     DWORD read;
 
-    /* In raw mode, try ReadFile first (reads raw console input as bytes) */
-    if (rawmode) {
-        char ch;
-        if (ReadFile(hIn, &ch, 1, &read, NULL) && read == 1) {
-            *vkCode = 0;
-            outBuf[0] = ch;
-            return 1;
-        }
-    }
-
-    /* Fallback: use ReadConsoleInputA for key events */
     while (1) {
         if (!ReadConsoleInputA(hIn, &ir, 1, &read)) return 0;
         if (read == 0) return 0;
@@ -372,22 +420,49 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
         *vkCode = vk;
 
-        /* Special keys — return virtual key code */
-        if (vk == VK_RETURN || vk == VK_BACK || vk == VK_ESCAPE ||
-            vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
-            vk == VK_DELETE || vk == VK_HOME || vk == VK_END || vk == VK_TAB) {
-            char asciiCh = ir.Event.KeyEvent.uChar.AsciiChar;
-            if (asciiCh != 0) {
-                outBuf[0] = asciiCh;
-                return 1;
-            }
-            /* Return VK code in outBuf: [0, vk_low_byte] */
+        /* Navigation keys without ASCII char: return VK code */
+        if (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
+            vk == VK_DELETE || vk == VK_HOME || vk == VK_END) {
             outBuf[0] = 0;
             outBuf[1] = (char)(vk & 0xFF);
             return 2;
         }
 
-        /* Regular character */
+        /* Enter: always return as VK code (not as '\r' char) so the edit
+         * loop handles it consistently. */
+        if (vk == VK_RETURN) {
+            outBuf[0] = 0;
+            outBuf[1] = (char)(vk & 0xFF);
+            return 2;
+        }
+
+        /* Escape: prefer VK code, but fall back to ASCII if needed */
+        if (vk == VK_ESCAPE) {
+            outBuf[0] = 0;
+            outBuf[1] = (char)(vk & 0xFF);
+            return 2;
+        }
+
+        /* Tab: return as VK code for completion handling */
+        if (vk == VK_TAB) {
+            outBuf[0] = 0;
+            outBuf[1] = (char)(vk & 0xFF);
+            return 2;
+        }
+
+        /* Backspace: prefer VK code for consistent handling */
+        if (vk == VK_BACK) {
+            char asciiCh = ir.Event.KeyEvent.uChar.AsciiChar;
+            if (asciiCh != 0) {
+                outBuf[0] = asciiCh;
+                return 1;
+            }
+            outBuf[0] = 0;
+            outBuf[1] = (char)(vk & 0xFF);
+            return 2;
+        }
+
+        /* Regular character: ASCII first */
         char ch = ir.Event.KeyEvent.uChar.AsciiChar;
         if (ch != 0) {
             outBuf[0] = ch;
