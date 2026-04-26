@@ -799,16 +799,7 @@ char *linenoise(const char *prompt) {
         if (result) break; /* Enter or EOF */
     }
 
-    /* buf was strdup'd inside feed on Enter, free our calloc buffer */
-    /* Actually, linenoiseEditFeed returns strdup(buf) on Enter */
-    /* We need to free the original buf */
-    /* Wait — let's re-check: feed returns strdup(l->buf) on Enter.
-     * The original buf is l->buf. So we should NOT free it — the caller
-     * will free the returned string via linenoiseFree. */
-    /* Actually, the convention is that linenoise returns a malloc'd string.
-     * Our editFeed returns strdup(l->buf) which is malloc'd.
-     * The original buf from calloc needs to be freed. */
-    /* But we can't free it here because result points to a different allocation. */
+    /* linenoiseEditFeed returns strdup(l->buf) on Enter — free the original buffer */
     free(buf);
 
     return result;
