@@ -126,18 +126,31 @@ std::vector<std::string> platformListFiles(const std::string& dir) {
     std::vector<std::string> result;
 
 #ifdef _WIN32
-    std::string pattern = dir + "\\*";
-    WIN32_FIND_DATAA findData;
-    HANDLE hFind = FindFirstFileA(pattern.c_str(), &findData);
+    // Convert UTF-8 dir to wide string
+    int dirLen = MultiByteToWideChar(CP_UTF8, 0, dir.c_str(), -1, nullptr, 0);
+    std::wstring dirW(dirLen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, dir.c_str(), -1, &dirW[0], dirLen);
+    dirW.pop_back(); // remove null terminator
+
+    std::wstring patternW = dirW + L"\\*";
+    WIN32_FIND_DATAW findDataW;
+    HANDLE hFind = FindFirstFileW(patternW.c_str(), &findDataW);
     if (hFind == INVALID_HANDLE_VALUE) return result;
 
     do {
-        std::string name(findData.cFileName);
-        if (name == "." || name == "..") continue;
-        // Skip hidden files (starting with .)
-        if (!name.empty() && name[0] == '.') continue;
+        // Skip . and .. and hidden files
+        if (findDataW.cFileName[0] == L'.') continue;
+
+        // Convert UTF-16 filename to UTF-8
+        int len = WideCharToMultiByte(CP_UTF8, 0, findDataW.cFileName, -1,
+                                       nullptr, 0, nullptr, nullptr);
+        std::string name(len, 0);
+        WideCharToMultiByte(CP_UTF8, 0, findDataW.cFileName, -1,
+                            &name[0], len, nullptr, nullptr);
+        name.pop_back(); // remove null terminator
+
         result.push_back(name);
-    } while (FindNextFileA(hFind, &findData) != 0);
+    } while (FindNextFileW(hFind, &findDataW) != 0);
 
     FindClose(hFind);
 #else
