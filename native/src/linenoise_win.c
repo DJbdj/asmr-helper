@@ -394,6 +394,11 @@ static int editInsert(struct linenoiseState *l, const char *text, size_t len) {
  * Handles both special keys and regular/IME-composed characters.
  * Returns number of bytes read into outBuf (UTF-8 encoded), or 0 on EOF/error.
  * Sets *vkCode to the virtual key code for special keys. */
+/* Read input from console using ReadConsoleInputW.
+ * IME-composed CJK characters arrive as VK_PROCESSKEY (0xE5) key events
+ * with the actual character in UnicodeChar.
+ * Returns number of bytes read into outBuf (UTF-8 encoded), or 0 on EOF/error.
+ * Sets *vkCode to the virtual key code for special keys. */
 static int readConsoleInput(char *outBuf, int *vkCode) {
     HANDLE hIn = getInputHandle();
     INPUT_RECORD ir;
@@ -404,20 +409,28 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         if (read == 0) return 0;
         if (ir.EventType != KEY_EVENT) continue;
 
-        /* Only process key-down events to avoid duplicates.
-         * Each key press generates both key-down and key-up events;
-         * processing only key-down prevents double-input and IME lag. */
+        /* Skip key-up events to avoid duplicates */
         if (!ir.Event.KeyEvent.bKeyDown) continue;
 
         WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
         *vkCode = vk;
+
+        /* VK_PROCESSKEY (0xE5) — IME-composed character.
+         * The actual Unicode character is in uChar.UnicodeChar. */
+        if (vk == VK_PROCESSKEY) {
+            WCHAR wch = ir.Event.KeyEvent.uChar.UnicodeChar;
+            if (wch != 0) {
+                *vkCode = 0;
+                goto processChar;
+            }
+            continue;
+        }
 
         /* Special keys: return as VK code */
         if (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
             vk == VK_DELETE || vk == VK_HOME || vk == VK_END ||
             vk == VK_RETURN || vk == VK_ESCAPE || vk == VK_TAB || vk == VK_BACK) {
 
-            /* Backspace may have an ASCII char — use it if available */
             if (vk == VK_BACK) {
                 char asciiCh = ir.Event.KeyEvent.uChar.AsciiChar;
                 if (asciiCh != 0) {
@@ -431,11 +444,27 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
             return 2;
         }
 
-        /* Regular character or IME-composed character.
-         * UnicodeChar contains the full Unicode character (including
-         * IME-composed CJK characters) on key-down. */
+        /* Regular character — UnicodeChar may be set for ASCII or IME input */
         WCHAR wch = ir.Event.KeyEvent.uChar.UnicodeChar;
         if (wch != 0) {
+processChar:
+            /* Convert UTF-16 to UTF-8 */
+            if (wch < 0x80) {
+                outBuf[0] = (char)wch;
+                return 1;
+            } else if (wch < 0x800) {
+                outBuf[0] = (char)(0xC0 | (wch >> 6));
+                outBuf[1] = (char)(0x80 | (wch & 0x3F));
+                return 2;
+            } else {
+                outBuf[0] = (char)(0xE0 | (wch >> 12));
+                outBuf[1] = (char)(0x80 | ((wch >> 6) & 0x3F));
+                outBuf[2] = (char)(0x80 | (wch & 0x3F));
+                return 3;
+            }
+        }
+    }
+}
             /* Map common special characters to VK codes */
             if (wch == '\r' || wch == '\n') {
                 *vkCode = VK_RETURN;
@@ -534,11 +563,14 @@ static int enableRawMode(int fd) {
     mode_out |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT;
     SetConsoleMode(hOut, mode_out);
 
-    /* Disable line input (we handle it via linenoise), disable echo (we
-     * handle display via refreshLine). ReadConsoleW handles IME composition
-     * even without ENABLE_LINE_INPUT, unlike ReadConsoleInputW.
-     * ENABLE_EXTENDED_FLAGS disables quick edit mode. */
-    DWORD new_mode_in = ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS;
+    /* Enable LINE_INPUT + ECHO_INPUT + PROCESSED_INPUT for IME support.
+     * Windows IME requires these flags to compose CJK characters.
+     * ReadConsoleInputW still returns events immediately (it's not affected
+     * by line input buffering — that only affects ReadConsole).
+     * Echo is handled by our refreshLine which overwrites with \r. */
+    DWORD new_mode_in = ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT |
+                        ENABLE_ECHO_INPUT | ENABLE_WINDOW_INPUT |
+                        ENABLE_EXTENDED_FLAGS;
     SetConsoleMode(hIn, new_mode_in);
 
     rawmode = 1;
