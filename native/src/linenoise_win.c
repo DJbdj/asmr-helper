@@ -465,50 +465,6 @@ processChar:
         }
     }
 }
-            /* Map common special characters to VK codes */
-            if (wch == '\r' || wch == '\n') {
-                *vkCode = VK_RETURN;
-                outBuf[0] = 0;
-                outBuf[1] = VK_RETURN;
-                return 2;
-            }
-            if (wch == 0x1B) {
-                *vkCode = VK_ESCAPE;
-                outBuf[0] = 0;
-                outBuf[1] = VK_ESCAPE;
-                return 2;
-            }
-            if (wch == '\t') {
-                *vkCode = VK_TAB;
-                outBuf[0] = 0;
-                outBuf[1] = VK_TAB;
-                return 2;
-            }
-            if (wch == '\b' || wch == 0x7F) {
-                *vkCode = VK_BACK;
-                outBuf[0] = 0;
-                outBuf[1] = VK_BACK;
-                return 2;
-            }
-
-            /* Regular character — convert UTF-16 to UTF-8 */
-            *vkCode = 0;
-            if (wch < 0x80) {
-                outBuf[0] = (char)wch;
-                return 1;
-            } else if (wch < 0x800) {
-                outBuf[0] = (char)(0xC0 | (wch >> 6));
-                outBuf[1] = (char)(0x80 | (wch & 0x3F));
-                return 2;
-            } else {
-                outBuf[0] = (char)(0xE0 | (wch >> 12));
-                outBuf[1] = (char)(0x80 | ((wch >> 6) & 0x3F));
-                outBuf[2] = (char)(0x80 | (wch & 0x3F));
-                return 3;
-            }
-        }
-    }
-}
 
 static int linenoiseEditFeedRaw(struct linenoiseState *l, char *outBuf) {
     int vkCode = 0;
