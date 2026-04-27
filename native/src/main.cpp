@@ -44,12 +44,16 @@ int main(int argc, char* argv[]) {
             clearScreen();
             printHeader("视频替换画面");
 
+#ifndef USE_FFMPEG_STATIC
             std::string ffmpeg_path = getFFmpegPath();
             if (ffmpeg_path.empty()) {
                 std::cout << COLOR_YELLOW << "  警告：未找到 FFmpeg，请先下载" << COLOR_RESET << std::endl;
                 getUserInput("按回车键继续...");
                 continue;
             }
+#else
+            // FFmpeg is embedded, no path check needed
+#endif
 
             // 输入视频
             std::cout << COLOR_CYAN << "  步骤 1: 选择输入视频" << COLOR_RESET << std::endl;
@@ -95,12 +99,16 @@ int main(int argc, char* argv[]) {
             clearScreen();
             printHeader("音频生成视频");
 
+#ifndef USE_FFMPEG_STATIC
             std::string ffmpeg_path = getFFmpegPath();
             if (ffmpeg_path.empty()) {
                 std::cout << COLOR_YELLOW << "  警告：未找到 FFmpeg，请先下载" << COLOR_RESET << std::endl;
                 getUserInput("按回车键继续...");
                 continue;
             }
+#else
+            // FFmpeg is embedded, no path check needed
+#endif
 
             // 输入音频
             std::cout << COLOR_CYAN << "  步骤 1: 选择输入音频" << COLOR_RESET << std::endl;
