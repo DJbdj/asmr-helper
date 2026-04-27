@@ -404,11 +404,15 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         if (read == 0) return 0;
         if (ir.EventType != KEY_EVENT) continue;
 
-        /* IMPORTANT: IME-composed characters (CJK) arrive with bKeyDown == FALSE.
-         * We must process those events to get the UnicodeChar.
-         * For regular keys, only process key-down to avoid duplicates. */
+        /* IMPORTANT: IME-composed characters (CJK) arrive in BOTH key-down
+         * and key-up events with the same UnicodeChar. We only process the
+         * key-up to avoid duplicates. Regular characters also arrive twice
+         * (key-down + key-up), so same rule applies: accept key-up only
+         * for character events. Non-character events (arrows, etc.) only
+         * have key-down, so we accept those normally. */
         BOOL isCharEvent = (ir.Event.KeyEvent.uChar.UnicodeChar != 0);
-        if (!ir.Event.KeyEvent.bKeyDown && !isCharEvent) continue;
+        if (isCharEvent && ir.Event.KeyEvent.bKeyDown) continue;
+        if (!isCharEvent && !ir.Event.KeyEvent.bKeyDown) continue;
 
         WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
         *vkCode = vk;
