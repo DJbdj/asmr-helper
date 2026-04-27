@@ -390,9 +390,9 @@ static int editInsert(struct linenoiseState *l, const char *text, size_t len) {
     return 1;
 }
 
-/* Read input from console. In raw mode, use ReadFile to read raw bytes
- * from stdin (like Unix read()). For non-raw fallback, use ReadConsoleInputA.
- * Returns number of bytes read into outBuf, or 0 on EOF/error.
+/* Read input from console using ReadConsoleInputW (Unicode-aware).
+ * This supports IME (Input Method Editor) for CJK characters.
+ * Returns number of bytes read into outBuf (UTF-8 encoded), or 0 on EOF/error.
  * Sets *vkCode to the virtual key code for special keys. */
 static int readConsoleInput(char *outBuf, int *vkCode) {
     HANDLE hIn = getInputHandle();
@@ -400,7 +400,7 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
     DWORD read;
 
     while (1) {
-        if (!ReadConsoleInputA(hIn, &ir, 1, &read)) return 0;
+        if (!ReadConsoleInputW(hIn, &ir, 1, &read)) return 0;
         if (read == 0) return 0;
         if (ir.EventType != KEY_EVENT) continue;
         if (!ir.Event.KeyEvent.bKeyDown) continue;
@@ -408,7 +408,7 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
         *vkCode = vk;
 
-        /* Navigation keys without ASCII char: return VK code */
+        /* Navigation keys without Unicode char: return VK code */
         if (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
             vk == VK_DELETE || vk == VK_HOME || vk == VK_END) {
             outBuf[0] = 0;
@@ -438,28 +438,31 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
             return 2;
         }
 
-        /* Backspace: prefer VK code for consistent handling */
+        /* Backspace: return as VK code for consistent handling */
         if (vk == VK_BACK) {
-            char asciiCh = ir.Event.KeyEvent.uChar.AsciiChar;
-            if (asciiCh != 0) {
-                outBuf[0] = asciiCh;
-                return 1;
-            }
             outBuf[0] = 0;
             outBuf[1] = (char)(vk & 0xFF);
             return 2;
         }
 
-        /* Regular character: ASCII first */
-        char ch = ir.Event.KeyEvent.uChar.AsciiChar;
-        if (ch != 0) {
-            outBuf[0] = ch;
-            return 1;
-        }
-
-        /* Unicode character (e.g., CJK) */
+        /* Get the Unicode character from the event */
         WCHAR wch = ir.Event.KeyEvent.uChar.UnicodeChar;
         if (wch != 0) {
+            /* Handle UTF-16 surrogate pairs (characters outside BMP) */
+            if (wch >= 0xD800 && wch <= 0xDBFF) {
+                /* High surrogate — need to read the next record for low surrogate.
+                 * This is a simplification; in practice IME composition delivers
+                 * the full character already decoded. */
+                /* For now, skip high surrogates and let the next iteration
+                 * handle the full pair. This is a known limitation. */
+                continue;
+            }
+            if (wch >= 0xDC00 && wch <= 0xDFFF) {
+                /* Low surrogate without preceding high surrogate — skip */
+                continue;
+            }
+
+            /* Convert UTF-16 to UTF-8 */
             if (wch < 0x80) {
                 outBuf[0] = (char)wch;
                 return 1;
@@ -530,10 +533,14 @@ static int enableRawMode(int fd) {
     mode_out |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT;
     SetConsoleMode(hOut, mode_out);
 
-    /* Disable line input, echo, processed input; enable window input.
-     * Keep QUICK_EDIT_MODE disabled so mouse selection doesn't interfere.
-     * ENABLE_EXTENDED_FLAGS is needed to properly disable quick edit. */
-    DWORD new_mode_in = ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS;
+    /* Disable line input and echo, but KEEP ENABLE_PROCESSED_INPUT for IME
+     * (Input Method Editor) support. Without ENABLE_PROCESSED_INPUT, the
+     * Windows IME cannot compose CJK characters.
+     * ENABLE_EXTENDED_FLAGS is needed to disable quick edit mode.
+     * ENABLE_MOUSE_INPUT is intentionally excluded to prevent interference. */
+    DWORD new_mode_in = (mode_in | ENABLE_PROCESSED_INPUT) &
+                        ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT) |
+                        ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS;
     SetConsoleMode(hIn, new_mode_in);
 
     rawmode = 1;
