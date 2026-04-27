@@ -1,6 +1,6 @@
 #Requires -Version 5.0
 # ASMR Helper - FFmpeg Development Libraries Setup Script (Windows)
-# Downloads FFmpeg MSVC static development libraries for building asmr-helper
+# Downloads FFmpeg MSVC shared development libraries (headers + import libs + DLLs)
 # Source: System233/ffmpeg-msvc-prebuilt (https://github.com/System233/ffmpeg-msvc-prebuilt)
 
 $ErrorActionPreference = "Stop"
@@ -18,28 +18,37 @@ $ProjectDir = Split-Path -Parent $ScriptDir
 # Target directory for FFmpeg dev libraries
 $DevDir = Join-Path $ProjectDir "ffmpeg-dev"
 
-# Check if already exists
-if (Test-Path (Join-Path $DevDir "lib\avformat.lib")) {
+# Check if already exists (check for both include and lib)
+if ((Test-Path (Join-Path $DevDir "include\libavformat\avformat.h")) -and
+    (Test-Path (Join-Path $DevDir "lib\avformat.lib"))) {
     Write-Host "[OK] FFmpeg dev libraries already exist" -ForegroundColor Green
     Write-Host ""
     Write-Host "Location: $DevDir"
     Write-Host ""
-    Write-Host "Now you can build with: cmake -B build_static -DFFMPEG_STATIC=ON && cmake --build build_static"
+    Write-Host "Now you can build with:" -ForegroundColor Yellow
+    Write-Host "  Remove-Item -Recurse -Force build_static" -ForegroundColor White
+    Write-Host "  cmake -B build_static -DFFMPEG_STATIC=ON" -ForegroundColor White
+    Write-Host "  cmake --build build_static --config Release" -ForegroundColor White
+    Write-Host ""
     exit 0
 }
 
-# Create directory
-if (-not (Test-Path $DevDir)) {
-    New-Item -ItemType Directory -Path $DevDir | Out-Null
+# Clean any partial installation
+if (Test-Path $DevDir) {
+    Remove-Item $DevDir -Recurse -Force -ErrorAction SilentlyContinue
 }
+New-Item -ItemType Directory -Path $DevDir | Out-Null
 
-# Download URL (System233/ffmpeg-msvc-prebuilt, FFmpeg 7.1 GPL static build)
-$FFmpegUrl = "https://github.com/System233/ffmpeg-msvc-prebuilt/releases/download/n7.1-241205/ffmpeg-n7.1-241205-gpl-amd64-static.zip"
-$TempFile = Join-Path $DevDir "ffmpeg-dev-download.zip"
+# Download URL: SHARED build (contains include/, lib/, bin/)
+# Static builds only have executables — shared builds have dev libraries + DLLs
+$FFmpegUrl = "https://github.com/System233/ffmpeg-msvc-prebuilt/releases/download/n7.1-241205/ffmpeg-n7.1-241205-gpl-amd64-shared.zip"
 
-Write-Host "[INFO] Downloading FFmpeg dev libraries (~170MB)..." -ForegroundColor Yellow
-Write-Host "[INFO] Source: System233/ffmpeg-msvc-prebuilt (FFmpeg 7.1 GPL)" -ForegroundColor Yellow
+Write-Host "[INFO] Downloading FFmpeg dev libraries (~130MB)..." -ForegroundColor Yellow
+Write-Host "[INFO] Source: System233/ffmpeg-msvc-prebuilt (FFmpeg 7.1 GPL shared)" -ForegroundColor Yellow
+Write-Host "[INFO] This includes headers, import libraries, and runtime DLLs" -ForegroundColor Yellow
 Write-Host ""
+
+$TempFile = Join-Path $DevDir "ffmpeg-dev-download.zip"
 
 try {
     Invoke-WebRequest -Uri $FFmpegUrl -OutFile $TempFile -UseBasicParsing
@@ -64,7 +73,7 @@ try {
 # Clean up temp file
 Remove-Item $TempFile -Force -ErrorAction SilentlyContinue
 
-# The zip extracts to a subdirectory like "ffmpeg-n7.1-..." — move contents up
+# The zip extracts to a subdirectory like "ffmpeg-n7.1-...-shared" — move contents up
 $ExtractedDirs = Get-ChildItem -Path $DevDir -Directory -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -like "ffmpeg-*" }
 
@@ -77,11 +86,11 @@ if ($ExtractedDirs) {
 }
 
 # Verify
-$HasLibs = (Test-Path (Join-Path $DevDir "lib\avformat.lib")) -or
-           (Test-Path (Join-Path $DevDir "lib\avformat.a"))
 $HasInclude = Test-Path (Join-Path $DevDir "include\libavformat\avformat.h")
+$HasLibs = Test-Path (Join-Path $DevDir "lib\avformat.lib")
+$HasDLLs = Test-Path (Join-Path $DevDir "bin\avformat-*.dll")
 
-if ($HasLibs -and $HasInclude) {
+if ($HasInclude -and $HasLibs) {
     Write-Host ""
     Write-Host "================================" -ForegroundColor Green
     Write-Host "  FFmpeg dev libraries ready!" -ForegroundColor Green
@@ -89,15 +98,22 @@ if ($HasLibs -and $HasInclude) {
     Write-Host ""
     Write-Host "Location: $DevDir"
     Write-Host ""
-    Write-Host "Now you can build with:" -ForegroundColor Yellow
+    Write-Host "  include/  — header files for compilation" -ForegroundColor White
+    Write-Host "  lib/     — import libraries for linking" -ForegroundColor White
+    if ($HasDLLs) {
+        Write-Host "  bin/     — runtime DLLs (copied to build output automatically)" -ForegroundColor White
+    }
+    Write-Host ""
+    Write-Host "Build commands:" -ForegroundColor Yellow
+    Write-Host "  Remove-Item -Recurse -Force build_static  # Important: clear old cache" -ForegroundColor White
     Write-Host "  cmake -B build_static -DFFMPEG_STATIC=ON" -ForegroundColor White
     Write-Host "  cmake --build build_static --config Release" -ForegroundColor White
     Write-Host ""
 } else {
     Write-Host "[!] FFmpeg dev libraries not found after extraction" -ForegroundColor Red
-    Write-Host "    Expected: $DevDir\lib\ and $DevDir\include\" -ForegroundColor Red
+    Write-Host "    Expected: $DevDir\include\ and $DevDir\lib\" -ForegroundColor Red
     Write-Host ""
     Write-Host "Downloaded archive may have a different structure." -ForegroundColor Red
-    Write-Host "Please check: https://github.com/System233/ffmpeg-msvc-prebuilt" -ForegroundColor Red
+    Write-Host "Please check: https://github.com/System233/ffmpeg-msvc-prebuilt/releases" -ForegroundColor Red
     exit 1
 }

@@ -132,8 +132,19 @@ else()
     endif()
 endif()
 
-# Copy FFmpeg directory to build output (Windows convenience)
-if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg")
+# Copy FFmpeg runtime DLLs to build output (Windows, FFMPEG_STATIC mode)
+# When using ffmpeg-dev/ from setup-ffmpeg-dev.ps1, copy DLLs alongside the exe
+if(FFMPEG_STATIC AND WIN32 AND EXISTS "${FFMPEG_DEV_DIR}/bin")
+    add_custom_command(TARGET asmr-helper POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${FFMPEG_DEV_DIR}/bin"
+            $<TARGET_FILE_DIR:asmr-helper>
+        COMMENT "Copying FFmpeg runtime DLLs to output directory"
+    )
+endif()
+
+# Copy FFmpeg binary directory to build output (non-static Windows convenience)
+if(NOT FFMPEG_STATIC AND WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg")
     add_custom_command(TARGET asmr-helper POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg
