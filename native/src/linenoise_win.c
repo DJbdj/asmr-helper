@@ -403,15 +403,22 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         if (!ReadConsoleInputW(hIn, &ir, 1, &read)) return 0;
         if (read == 0) return 0;
         if (ir.EventType != KEY_EVENT) continue;
-        if (!ir.Event.KeyEvent.bKeyDown) continue;
+
+        /* IMPORTANT: IME-composed characters (CJK) arrive with bKeyDown == FALSE.
+         * We must process those events to get the UnicodeChar.
+         * For regular keys, only process key-down to avoid duplicates. */
+        BOOL isCharEvent = (ir.Event.KeyEvent.uChar.UnicodeChar != 0);
+        if (!ir.Event.KeyEvent.bKeyDown && !isCharEvent) continue;
 
         WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
         *vkCode = vk;
 
-        /* Special keys: return as VK code */
+        /* Special keys: return as VK code (only on key-down) */
         if (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
             vk == VK_DELETE || vk == VK_HOME || vk == VK_END ||
             vk == VK_RETURN || vk == VK_ESCAPE || vk == VK_TAB || vk == VK_BACK) {
+
+            if (!ir.Event.KeyEvent.bKeyDown) continue;
 
             /* Backspace may have an ASCII char — use it if available */
             if (vk == VK_BACK) {
