@@ -394,11 +394,6 @@ static int editInsert(struct linenoiseState *l, const char *text, size_t len) {
  * Handles both special keys and regular/IME-composed characters.
  * Returns number of bytes read into outBuf (UTF-8 encoded), or 0 on EOF/error.
  * Sets *vkCode to the virtual key code for special keys. */
-/* Read input from console using ReadConsoleInputW.
- * IME-composed CJK characters arrive as VK_PROCESSKEY (0xE5) key events
- * with the actual character in UnicodeChar.
- * Returns number of bytes read into outBuf (UTF-8 encoded), or 0 on EOF/error.
- * Sets *vkCode to the virtual key code for special keys. */
 static int readConsoleInput(char *outBuf, int *vkCode) {
     HANDLE hIn = getInputHandle();
     INPUT_RECORD ir;
@@ -409,22 +404,25 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         if (read == 0) return 0;
         if (ir.EventType != KEY_EVENT) continue;
 
-        /* Skip key-up events to avoid duplicates */
-        if (!ir.Event.KeyEvent.bKeyDown) continue;
-
         WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
-        *vkCode = vk;
+        BOOL isKeyDown = ir.Event.KeyEvent.bKeyDown;
+        WCHAR wch = ir.Event.KeyEvent.uChar.UnicodeChar;
 
-        /* VK_PROCESSKEY (0xE5) — IME-composed character.
-         * The actual Unicode character is in uChar.UnicodeChar. */
+        /* VK_PROCESSKEY (0xE5): IME-composed character.
+         * The actual Unicode character arrives in the key-up event
+         * (key-down has UnicodeChar == 0). */
         if (vk == VK_PROCESSKEY) {
-            WCHAR wch = ir.Event.KeyEvent.uChar.UnicodeChar;
-            if (wch != 0) {
+            if (!isKeyDown && wch != 0) {
                 *vkCode = 0;
                 goto processChar;
             }
             continue;
         }
+
+        /* For all other keys, only process key-down to avoid duplicates */
+        if (!isKeyDown) continue;
+
+        *vkCode = vk;
 
         /* Special keys: return as VK code */
         if (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
@@ -445,9 +443,9 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         }
 
         /* Regular character — UnicodeChar may be set for ASCII or IME input */
-        WCHAR wch = ir.Event.KeyEvent.uChar.UnicodeChar;
         if (wch != 0) {
 processChar:
+            *vkCode = 0;
             /* Convert UTF-16 to UTF-8 */
             if (wch < 0x80) {
                 outBuf[0] = (char)wch;
