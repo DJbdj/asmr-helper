@@ -9,8 +9,10 @@
 
 #ifdef _WIN32
     #include <io.h>
+    #include <windows.h>
 #else
     #include <unistd.h>
+    #include <sys/stat.h>
 #endif
 
 #include "linenoise.h"
@@ -38,6 +40,17 @@ void printMenu(const std::vector<std::string>& items) {
 }
 
 // ============== Linenoise 补全 ==============
+
+// Check if a path is a directory
+static bool isDirectory(const std::string& path) {
+#ifdef _WIN32
+    DWORD attrs = GetFileAttributesA(path.c_str());
+    return (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY));
+#else
+    struct stat st;
+    return (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode));
+#endif
+}
 
 // 路径补全回调
 static void pathCompletion(const char* buf, linenoiseCompletions* lc) {
@@ -74,11 +87,17 @@ static void pathCompletion(const char* buf, linenoiseCompletions* lc) {
         for (char& c : nameLower) c = tolower(c);
         if (nameLower.substr(0, basenameLen) == basenameLower) {
             std::string completion = pathPrefix + name;
-            // Check if it's a directory — append separator
+
+            // If it's a directory, append separator for further navigation
             std::string fullPath = platformPathJoin(dirname, name);
-            // Simple check: try to see if the name has extension (files do, dirs often don't)
-            // For accuracy, we'd need platform-specific stat, but linenoise needs quick checks
-            completion += platformPathJoin("", ""); // no separator needed here
+            if (isDirectory(fullPath)) {
+#ifdef _WIN32
+                completion += "\\";
+#else
+                completion += "/";
+#endif
+            }
+
             matchList.push_back(completion);
         }
     }
@@ -96,11 +115,6 @@ static void pathCompletion(const char* buf, linenoiseCompletions* lc) {
         commonPrefix = commonPrefix.substr(0, j);
     }
 
-    // Set the replacement text (common prefix)
-    linenoiseSetCompletionCallback(nullptr); // temp clear
-    // Actually linenoise doesn't have a way to set replacement directly
-    // The completion callback just adds completions; linenoise handles the rest
-
     for (const auto& m : matchList) {
         linenoiseAddCompletion(lc, m.c_str());
     }
@@ -115,8 +129,13 @@ void initReadline() {
 }
 
 std::string getUserInput(const std::string& prompt) {
-    // Use a plain prompt without colors for linenoise (colors in linenoise prompt don't work well)
-    std::string displayPrompt = "  " + prompt + ": ";
+    // Strip trailing colon/spaces — we add our own consistent suffix
+    std::string trimmed = prompt;
+    while (!trimmed.empty() && (trimmed.back() == ':' || trimmed.back() == ' ')) {
+        trimmed.pop_back();
+    }
+
+    std::string displayPrompt = "  " + trimmed + ": ";
 
     char* input = linenoise(displayPrompt.c_str());
 
