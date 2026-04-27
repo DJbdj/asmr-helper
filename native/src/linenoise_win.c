@@ -404,25 +404,18 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         if (read == 0) return 0;
         if (ir.EventType != KEY_EVENT) continue;
 
-        /* IMPORTANT: IME-composed characters (CJK) arrive in BOTH key-down
-         * and key-up events with the same UnicodeChar. We only process the
-         * key-up to avoid duplicates. Regular characters also arrive twice
-         * (key-down + key-up), so same rule applies: accept key-up only
-         * for character events. Non-character events (arrows, etc.) only
-         * have key-down, so we accept those normally. */
-        BOOL isCharEvent = (ir.Event.KeyEvent.uChar.UnicodeChar != 0);
-        if (isCharEvent && ir.Event.KeyEvent.bKeyDown) continue;
-        if (!isCharEvent && !ir.Event.KeyEvent.bKeyDown) continue;
+        /* Only process key-down events to avoid duplicates.
+         * Each key press generates both key-down and key-up events;
+         * processing only key-down prevents double-input and IME lag. */
+        if (!ir.Event.KeyEvent.bKeyDown) continue;
 
         WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
         *vkCode = vk;
 
-        /* Special keys: return as VK code (only on key-down) */
+        /* Special keys: return as VK code */
         if (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
             vk == VK_DELETE || vk == VK_HOME || vk == VK_END ||
             vk == VK_RETURN || vk == VK_ESCAPE || vk == VK_TAB || vk == VK_BACK) {
-
-            if (!ir.Event.KeyEvent.bKeyDown) continue;
 
             /* Backspace may have an ASCII char — use it if available */
             if (vk == VK_BACK) {
@@ -440,7 +433,7 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
 
         /* Regular character or IME-composed character.
          * UnicodeChar contains the full Unicode character (including
-         * IME-composed CJK characters). */
+         * IME-composed CJK characters) on key-down. */
         WCHAR wch = ir.Event.KeyEvent.uChar.UnicodeChar;
         if (wch != 0) {
             /* Map common special characters to VK codes */
