@@ -84,6 +84,8 @@ static std::string runFFprobe(const std::string& file_path, const std::string& a
     return result;
 }
 
+#endif // USE_FFMPEG_STATIC (end of ffprobe JSON parsing section)
+
 // ============== 媒体信息获取 ==============
 
 bool getVideoInfo(const std::string& video_path, int& width, int& height, double& duration) {
@@ -184,8 +186,6 @@ bool getImageSize(const std::string& image_path, int& width, int& height) {
     return true;
 #endif
 }
-
-#endif // USE_FFMPEG_STATIC (end of ffprobe JSON parsing section)
 
 // ============== 进度条 ==============
 
