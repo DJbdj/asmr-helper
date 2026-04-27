@@ -18,9 +18,9 @@ $ProjectDir = Split-Path -Parent $ScriptDir
 # Target directory for FFmpeg dev libraries
 $DevDir = Join-Path $ProjectDir "ffmpeg-dev"
 
-# Check if already exists (check for both include and lib)
+# Check if already exists (this package puts .lib in bin/, not lib/)
 if ((Test-Path (Join-Path $DevDir "include\libavformat\avformat.h")) -and
-    (Test-Path (Join-Path $DevDir "lib\avformat.lib"))) {
+    (Test-Path (Join-Path $DevDir "bin\avformat.lib"))) {
     Write-Host "[OK] FFmpeg dev libraries already exist" -ForegroundColor Green
     Write-Host ""
     Write-Host "Location: $DevDir"
@@ -85,10 +85,10 @@ if ($ExtractedDirs) {
     Remove-Item $SourceDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Verify
+# Verify (.lib files are in bin/ alongside DLLs in this package)
 $HasInclude = Test-Path (Join-Path $DevDir "include\libavformat\avformat.h")
-$HasLibs = Test-Path (Join-Path $DevDir "lib\avformat.lib")
-$HasDLLs = Test-Path (Join-Path $DevDir "bin\avformat-*.dll")
+$HasLibs = Test-Path (Join-Path $DevDir "bin\avformat.lib")
+$HasDLLs = Test-Path (Join-Path $DevDir "bin\avformat-61.dll")
 
 if ($HasInclude -and $HasLibs) {
     Write-Host ""
@@ -99,10 +99,7 @@ if ($HasInclude -and $HasLibs) {
     Write-Host "Location: $DevDir"
     Write-Host ""
     Write-Host "  include/  — header files for compilation" -ForegroundColor White
-    Write-Host "  lib/     — import libraries for linking" -ForegroundColor White
-    if ($HasDLLs) {
-        Write-Host "  bin/     — runtime DLLs (copied to build output automatically)" -ForegroundColor White
-    }
+    Write-Host "  bin/      — DLLs + import libraries for linking" -ForegroundColor White
     Write-Host ""
     Write-Host "Build commands:" -ForegroundColor Yellow
     Write-Host "  Remove-Item -Recurse -Force build_static  # Important: clear old cache" -ForegroundColor White

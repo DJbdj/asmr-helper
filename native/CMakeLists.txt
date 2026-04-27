@@ -55,11 +55,12 @@ if(FFMPEG_STATIC)
 
     if(WIN32)
         # Priority 1: Check project-local ffmpeg-dev/ directory (setup-ffmpeg-dev.ps1)
+        # Note: System233's package puts .lib files in bin/ alongside DLLs, not in lib/
         set(FFMPEG_DEV_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-dev")
         if(EXISTS "${FFMPEG_DEV_DIR}/include/libavformat/avformat.h")
             message(STATUS "Found FFmpeg dev libraries in ffmpeg-dev/ (local)")
             target_include_directories(asmr-helper PRIVATE "${FFMPEG_DEV_DIR}/include")
-            target_link_directories(asmr-helper PRIVATE "${FFMPEG_DEV_DIR}/lib")
+            target_link_directories(asmr-helper PRIVATE "${FFMPEG_DEV_DIR}/bin")
             target_link_libraries(asmr-helper PRIVATE
                 avformat avcodec avfilter avutil swscale swresample
                 bcrypt secur32)
