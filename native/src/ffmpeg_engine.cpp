@@ -312,8 +312,10 @@ bool ffmpegProcessVideo(const std::string& video, const std::string& image,
     encCtx->time_base = vidFmtCtx->streams[vidx]->time_base;
     encCtx->framerate = vidFmtCtx->streams[vidx]->r_frame_rate;
     if (encCtx->framerate.num == 0) {
-        encCtx->framerate = (AVRational){30, 1};
-        encCtx->time_base = (AVRational){1, 30};
+        AVRational defaultFramerate = {30, 1};
+        AVRational defaultTimeBase = {1, 30};
+        encCtx->framerate = defaultFramerate;
+        encCtx->time_base = defaultTimeBase;
     }
     encCtx->pix_fmt = AV_PIX_FMT_YUV420P;
     encCtx->gop_size = 12;
@@ -584,8 +586,12 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
     AVCodecContext* vidEncCtx = avcodec_alloc_context3(vidEncCodec);
     vidEncCtx->width = outW;
     vidEncCtx->height = outH;
-    vidEncCtx->time_base = (AVRational){1, 30};
-    vidEncCtx->framerate = (AVRational){30, 1};
+    {
+        AVRational tb = {1, 30};
+        AVRational fr = {30, 1};
+        vidEncCtx->time_base = tb;
+        vidEncCtx->framerate = fr;
+    }
     vidEncCtx->pix_fmt = AV_PIX_FMT_YUV420P;
     vidEncCtx->gop_size = 12;
 

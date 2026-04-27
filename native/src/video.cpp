@@ -11,11 +11,11 @@
 
 #ifdef USE_FFMPEG_STATIC
     #include "ffmpeg_engine.h"
-#else
-    #ifdef _WIN32
-        #define popen  _popen
-        #define pclose _pclose
-    #endif
+#endif
+
+#ifdef _WIN32
+    #define popen  _popen
+    #define pclose _pclose
 #endif
 
 extern std::string g_program_dir;
@@ -23,6 +23,9 @@ extern std::string g_program_dir;
 // ============== FFmpeg 路径 ==============
 
 std::string getFFmpegPath() {
+#ifdef USE_FFMPEG_STATIC
+    return "";  // FFmpeg is embedded, no external binary needed
+#else
     std::string localFFmpeg = platformPathJoin(g_program_dir, platformPathJoin("ffmpeg", platformGetBinaryName("ffmpeg")));
     if (fileExists(localFFmpeg)) {
         return localFFmpeg;
@@ -34,8 +37,10 @@ std::string getFFmpegPath() {
     }
 
     return "";
+#endif
 }
 
+#ifndef USE_FFMPEG_STATIC
 // ============== ffprobe JSON 解析工具 ==============
 
 // 从 JSON 字符串中提取值（处理字符串类型的值）
@@ -179,6 +184,8 @@ bool getImageSize(const std::string& image_path, int& width, int& height) {
     return true;
 #endif
 }
+
+#endif // USE_FFMPEG_STATIC (end of ffprobe JSON parsing section)
 
 // ============== 进度条 ==============
 
