@@ -391,10 +391,13 @@ static int editInsert(struct linenoiseState *l, const char *text, size_t len) {
 }
 
 /* Read input from console using a hybrid approach:
- * - PeekConsoleInputW + ReadConsoleInputW for special keys
- * - ReadConsoleW for character input (the ONLY API supporting IME)
- * ENABLE_LINE_INPUT must be ON for IME, but ReadConsoleW returns
- * immediately when LINE_INPUT is OFF (which is our case). */
+ * - PeekConsoleInputW + ReadConsoleInputW for navigation keys ONLY
+ *   (arrows, delete, home, end — these don't produce characters)
+ * - ReadConsoleW for ALL character-producing keys including
+ *   Enter, Escape, Tab, Backspace, and IME-composed CJK characters.
+ *   ReadConsoleW is the ONLY API that properly delivers IME composition.
+ * ENABLE_LINE_INPUT must be ON for IME; ReadConsoleW returns when
+ * Enter is pressed, which we also handle in the character path. */
 static int readConsoleInput(char *outBuf, int *vkCode) {
     HANDLE hIn = getInputHandle();
 
@@ -403,6 +406,7 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         DWORD numEvents = 0;
         DWORD read;
 
+        /* Only peek for navigation keys that don't produce characters */
         GetNumberOfConsoleInputEvents(hIn, &numEvents);
         if (numEvents > 0) {
             PeekConsoleInputW(hIn, &ir, 1, &read);
@@ -410,16 +414,11 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
                 WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
                 *vkCode = vk;
 
+                /* Navigation keys ONLY — not Enter/Escape/Tab/Backspace
+                 * (those go through ReadConsoleW as characters) */
                 if (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
-                    vk == VK_DELETE || vk == VK_HOME || vk == VK_END ||
-                    vk == VK_RETURN || vk == VK_ESCAPE || vk == VK_TAB || vk == VK_BACK) {
+                    vk == VK_DELETE || vk == VK_HOME || vk == VK_END) {
                     ReadConsoleInputW(hIn, &ir, 1, &read);
-
-                    if (vk == VK_BACK && ir.Event.KeyEvent.uChar.AsciiChar != 0) {
-                        outBuf[0] = ir.Event.KeyEvent.uChar.AsciiChar;
-                        return 1;
-                    }
-
                     outBuf[0] = 0;
                     outBuf[1] = (char)(vk & 0xFF);
                     return 2;
@@ -427,9 +426,8 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
             }
         }
 
-        /* No special keys pending — use ReadConsoleW for character input.
-         * ReadConsoleW is the ONLY API that properly delivers IME-composed
-         * characters. With ENABLE_LINE_INPUT OFF, it returns immediately. */
+        /* Character input — ReadConsoleW handles ASCII, Enter, Escape,
+         * Tab, Backspace, and IME-composed CJK characters. */
         WCHAR wch = 0;
         DWORD charsRead = 0;
         if (!ReadConsoleW(hIn, &wch, 1, &charsRead, NULL) || charsRead == 0) return 0;
