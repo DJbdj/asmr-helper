@@ -15,6 +15,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdint.h>
+#include <conio.h> /* _getwch(), _getwche() — handles IME properly */
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
@@ -390,82 +391,78 @@ static int editInsert(struct linenoiseState *l, const char *text, size_t len) {
     return 1;
 }
 
-/* Read input from console using ReadConsoleInputW only.
+/* Read input from console using _getwch() from conio.h.
  *
- * IME-composed CJK characters arrive as VK_PROCESSKEY (0xE5) events.
- * The key-down has UnicodeChar=0, the key-up has the actual character.
+ * _getwch() properly handles IME composition on Windows because it
+ * uses the Windows console API internally with correct IME support.
  *
- * All other keys produce both key-down and key-up. We process key-down
- * for special keys and key-up for characters to avoid duplicates. */
+ * Returns number of bytes read into outBuf (UTF-8), or 0 on EOF/error.
+ * Sets *vkCode to the virtual key code for special keys. */
 static int readConsoleInput(char *outBuf, int *vkCode) {
-    HANDLE hIn = getInputHandle();
-    INPUT_RECORD ir;
-    DWORD read;
+    /* _getwch() reads a wide character from the console */
+    int wch = _getwch();
 
-    while (1) {
-        if (!ReadConsoleInputW(hIn, &ir, 1, &read)) return 0;
-        if (read == 0) return 0;
-        if (ir.EventType != KEY_EVENT) continue;
-
-        BOOL isKeyDown = ir.Event.KeyEvent.bKeyDown;
-        WORD vk = ir.Event.KeyEvent.wVirtualKeyCode;
-        WCHAR wch = ir.Event.KeyEvent.uChar.UnicodeChar;
-
-        /* VK_PROCESSKEY: IME-composed character.
-         * key-down: UnicodeChar == 0, skip it
-         * key-up: UnicodeChar == actual CJK character, return it */
-        if (vk == VK_PROCESSKEY) {
-            if (isKeyDown) continue; /* skip key-down */
-            if (wch != 0) {
+    /* First byte of extended key: _getwch returns 0 or 0xE0 for
+     * arrow/special keys, then a second call returns the scan code. */
+    if (wch == 0 || wch == 0xE0) {
+        int scan = _getwch();
+        /* Map scan codes to virtual key codes */
+        switch (scan) {
+            case 72: *vkCode = VK_UP;    break;
+            case 80: *vkCode = VK_DOWN;  break;
+            case 75: *vkCode = VK_LEFT;  break;
+            case 77: *vkCode = VK_RIGHT; break;
+            case 83: *vkCode = VK_DELETE;break;
+            case 71: *vkCode = VK_HOME;  break;
+            case 79: *vkCode = VK_END;   break;
+            default:
                 *vkCode = 0;
-                goto processChar;
-            }
-            continue;
-        }
-
-        /* Special navigation keys: only process key-down to avoid dupes */
-        if (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN ||
-            vk == VK_DELETE || vk == VK_HOME || vk == VK_END ||
-            vk == VK_RETURN || vk == VK_ESCAPE || vk == VK_TAB || vk == VK_BACK) {
-            if (!isKeyDown) continue; /* skip key-up */
-
-            *vkCode = vk;
-
-            if (vk == VK_BACK) {
-                char asciiCh = ir.Event.KeyEvent.uChar.AsciiChar;
-                if (asciiCh != 0) {
-                    outBuf[0] = asciiCh;
-                    return 1;
-                }
-            }
-
-            outBuf[0] = 0;
-            outBuf[1] = (char)(vk & 0xFF);
-            return 2;
-        }
-
-        /* Regular character keys (a-z, 0-9, symbols): only key-down */
-        if (!isKeyDown) continue;
-
-        *vkCode = vk;
-
-        if (wch != 0) {
-processChar:
-            *vkCode = 0;
-            if (wch < 0x80) {
-                outBuf[0] = (char)wch;
-                return 1;
-            } else if (wch < 0x800) {
-                outBuf[0] = (char)(0xC0 | (wch >> 6));
-                outBuf[1] = (char)(0x80 | (wch & 0x3F));
+                outBuf[0] = 0;
+                outBuf[1] = (char)scan;
                 return 2;
-            } else {
-                outBuf[0] = (char)(0xE0 | (wch >> 12));
-                outBuf[1] = (char)(0x80 | ((wch >> 6) & 0x3F));
-                outBuf[2] = (char)(0x80 | (wch & 0x3F));
-                return 3;
-            }
         }
+        outBuf[0] = 0;
+        outBuf[1] = (char)(*vkCode & 0xFF);
+        return 2;
+    }
+
+    /* Regular character or IME-composed CJK character */
+    *vkCode = 0;
+
+    if (wch == '\r') {
+        *vkCode = VK_RETURN;
+        outBuf[0] = 0; outBuf[1] = VK_RETURN;
+        return 2;
+    }
+    if (wch == 0x1B) {
+        *vkCode = VK_ESCAPE;
+        outBuf[0] = 0; outBuf[1] = VK_ESCAPE;
+        return 2;
+    }
+    if (wch == '\t') {
+        *vkCode = VK_TAB;
+        outBuf[0] = 0; outBuf[1] = VK_TAB;
+        return 2;
+    }
+    if (wch == '\b' || wch == 0x7F) {
+        *vkCode = VK_BACK;
+        outBuf[0] = 0; outBuf[1] = VK_BACK;
+        return 2;
+    }
+
+    /* Convert UTF-16 (WCHAR) to UTF-8 */
+    if (wch < 0x80) {
+        outBuf[0] = (char)wch;
+        return 1;
+    } else if (wch < 0x800) {
+        outBuf[0] = (char)(0xC0 | (wch >> 6));
+        outBuf[1] = (char)(0x80 | (wch & 0x3F));
+        return 2;
+    } else {
+        outBuf[0] = (char)(0xE0 | (wch >> 12));
+        outBuf[1] = (char)(0x80 | ((wch >> 6) & 0x3F));
+        outBuf[2] = (char)(0x80 | (wch & 0x3F));
+        return 3;
     }
 }
 
@@ -522,14 +519,9 @@ static int enableRawMode(int fd) {
     mode_out |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT;
     SetConsoleMode(hOut, mode_out);
 
-    /* Enable LINE_INPUT for IME support. ReadConsoleInputW delivers
-     * events one-by-one regardless (line buffering only affects ReadConsole).
-     * Disable ECHO so linenoise handles display.
-     * ENABLE_EXTENDED_FLAGS disables quick edit mode. */
-    DWORD new_mode_in = ENABLE_LINE_INPUT | ENABLE_WINDOW_INPUT |
-                        ENABLE_EXTENDED_FLAGS;
-    SetConsoleMode(hIn, new_mode_in);
-
+    /* _getwch() doesn't require any special console mode — it handles
+     * IME composition internally via the Windows console API.
+     * We keep default console mode for proper IME support. */
     rawmode = 1;
     return 0;
 }
