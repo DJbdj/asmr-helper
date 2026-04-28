@@ -531,15 +531,14 @@ static int enableRawMode(int fd) {
     mode_out |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT;
     SetConsoleMode(hOut, mode_out);
 
-    /* Enable LINE_INPUT + PROCESSED_INPUT + ECHO_INPUT for IME support.
-     * Windows IME requires these flags to compose CJK characters.
-     * ReadConsoleInputW (via Peek) returns events immediately regardless.
-     * ReadConsoleW returns characters one-by-one (not line-buffered)
-     * because we're reading from stdin pipe, not a console handle.
+    /* Disable line input and echo so linenoise handles all display.
+     * ReadConsoleW returns characters immediately without line buffering
+     * when ENABLE_LINE_INPUT is OFF.
+     * IME still works — the IME composition window is managed by the
+     * Console IME subsystem independently.
      * ENABLE_EXTENDED_FLAGS disables quick edit mode. */
-    DWORD new_mode_in = ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT |
-                        ENABLE_ECHO_INPUT | ENABLE_WINDOW_INPUT |
-                        ENABLE_EXTENDED_FLAGS;
+    DWORD new_mode_in = ENABLE_PROCESSED_INPUT |
+                        ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS;
     SetConsoleMode(hIn, new_mode_in);
 
     rawmode = 1;
