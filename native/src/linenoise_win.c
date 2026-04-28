@@ -433,10 +433,16 @@ static int readConsoleInput(char *outBuf, int *vkCode) {
         if (!ReadConsoleW(hIn, &wch, 1, &charsRead, NULL) || charsRead == 0) return 0;
 
         /* Map special characters to VK codes */
-        if (wch == '\r' || wch == '\n') {
+        if (wch == '\r') {
             *vkCode = VK_RETURN;
             outBuf[0] = 0; outBuf[1] = VK_RETURN;
             return 2;
+        }
+        if (wch == '\n') {
+            /* Skip lone '\n' — Windows Enter produces '\r\n', and '\r'
+             * is the real Enter. Lone '\n' left over from previous input
+             * would cause immediate empty returns. */
+            continue;
         }
         if (wch == 0x1B) {
             *vkCode = VK_ESCAPE;
