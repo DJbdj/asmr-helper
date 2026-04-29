@@ -663,15 +663,7 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
 
     avformat_write_header(outFmtCtx, nullptr);
 
-    // 7. Push image into filter
-    imgFrame->pts = 0;
-    av_buffersrc_add_frame_flags(srcCtx, imgFrame, AV_BUFFERSRC_FLAG_KEEP_REF);
-
-    // 8. Get filtered frame (reference for repeated use)
-    AVFrame* filtFrame = av_frame_alloc();
-    av_buffersink_get_frame(sinkCtx, filtFrame);
-
-    // 9. Main loop: decode audio -> encode audio, reuse filtered frame for video
+    // 7. Main loop: decode audio -> encode audio, reuse filtered frame for video
     AVPacket* pkt = av_packet_alloc();
     AVFrame* audFrame = av_frame_alloc();
     int64_t totalAudioFrames = 0;
@@ -698,15 +690,10 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
             currentTime = (double)audFrame->pts *
                           av_q2d(audFmtCtx->streams[aidx]->time_base);
 
-            // Encode video frames for this audio duration
-            // Generate enough video frames to match audio timing
-            AVFrame* vidFrame = av_frame_clone(filtFrame);
-            vidFrame->pts = totalAudioFrames - 1;
-            // Set video time base
-            vidFrame->pts = (int64_t)(currentTime * 30);
-
-            avcodec_send_frame(vidEncCtx, vidFrame);
-            av_frame_free(&vidFrame);
+            // Encode video frame: reuse the same filtered image frame
+            // (don't clone/free — avcodec_send_frame doesn't take ownership)
+            filtFrame->pts = totalAudioFrames - 1;
+            avcodec_send_frame(vidEncCtx, filtFrame);
 
             AVPacket* vidEncPkt = av_packet_alloc();
             while (avcodec_receive_packet(vidEncCtx, vidEncPkt) == 0) {
@@ -737,23 +724,8 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
         }
     }
 
-    // Flush video encoder - send remaining frames to match audio duration
-    int64_t remainingFrames = (int64_t)(duration * 30) - totalAudioFrames;
-    for (int64_t i = 0; i < remainingFrames; i++) {
-        AVFrame* vidFrame = av_frame_clone(filtFrame);
-        vidFrame->pts = totalAudioFrames + i;
-        avcodec_send_frame(vidEncCtx, vidFrame);
-        av_frame_free(&vidFrame);
-        AVPacket* vidEncPkt = av_packet_alloc();
-        while (avcodec_receive_packet(vidEncCtx, vidEncPkt) == 0) {
-            av_packet_rescale_ts(vidEncPkt, vidEncCtx->time_base, outVidStream->time_base);
-            vidEncPkt->stream_index = outVidStream->index;
-            av_interleaved_write_frame(outFmtCtx, vidEncPkt);
-        }
-        av_packet_free(&vidEncPkt);
-    }
-
-    // Flush encoders
+    // Flush video encoder
+    filtFrame->pts = totalAudioFrames;
     avcodec_send_frame(vidEncCtx, nullptr);
     AVPacket* vidFlushPkt = av_packet_alloc();
     while (avcodec_receive_packet(vidEncCtx, vidFlushPkt) == 0) {
