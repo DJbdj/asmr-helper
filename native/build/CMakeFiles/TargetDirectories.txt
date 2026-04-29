@@ -1,0 +1,3 @@
+E:/Coode_learning/C-text/DJbdj/DJbdj/asmr-helper/native/build/CMakeFiles/asmr-helper.dir
+E:/Coode_learning/C-text/DJbdj/DJbdj/asmr-helper/native/build/CMakeFiles/ALL_BUILD.dir
+E:/Coode_learning/C-text/DJbdj/DJbdj/asmr-helper/native/build/CMakeFiles/ZERO_CHECK.dir

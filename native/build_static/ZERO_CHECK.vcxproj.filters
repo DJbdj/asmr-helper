@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\build_static\CMakeFiles\4b3bf359ec1033beb754a683bde56a05\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{5A363253-E1C7-3ACB-AF7F-85F806770A16}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\src\ui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\src\http.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\src\video.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\src\platform.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\src\ffmpeg_engine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\src\linenoise_win.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="E:\Coode_learning\C-text\DJbdj\DJbdj\asmr-helper\native\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{BB4F6708-6DA2-37A7-9393-96D6F1574DE8}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

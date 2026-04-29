@@ -1,0 +1,10 @@
+^E:\COODE_LEARNING\C-TEXT\DJBDJ\DJBDJ\ASMR-HELPER\NATIVE\CMAKELISTS.TXT
+setlocal
+"D:\Microsoft Visual Studio\2022\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SE:/Coode_learning/C-text/DJbdj/DJbdj/asmr-helper/native -BE:/Coode_learning/C-text/DJbdj/DJbdj/asmr-helper/native/build --check-stamp-file E:/Coode_learning/C-text/DJbdj/DJbdj/asmr-helper/native/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
