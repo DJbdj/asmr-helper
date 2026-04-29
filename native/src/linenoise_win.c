@@ -519,9 +519,13 @@ static int enableRawMode(int fd) {
     mode_out |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | ENABLE_PROCESSED_OUTPUT;
     SetConsoleMode(hOut, mode_out);
 
-    /* _getwch() doesn't require any special console mode — it handles
-     * IME composition internally via the Windows console API.
-     * We keep default console mode for proper IME support. */
+    /* _getwch() needs ENABLE_LINE_INPUT for IME composition.
+     * Disable ECHO so linenoise handles display.
+     * ENABLE_EXTENDED_FLAGS disables quick edit mode. */
+    DWORD new_mode_in = ENABLE_LINE_INPUT | ENABLE_WINDOW_INPUT |
+                        ENABLE_EXTENDED_FLAGS;
+    SetConsoleMode(hIn, new_mode_in);
+
     rawmode = 1;
     return 0;
 }
