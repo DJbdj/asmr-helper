@@ -267,19 +267,21 @@ bool ffmpegProcessVideo(const std::string& video, const std::string& image,
     AVFilterInOut* outputs = avfilter_inout_alloc();
     AVFilterInOut* inputs = avfilter_inout_alloc();
 
-    outputs->name = av_strdup("out");
-    outputs->filter_ctx = sinkCtx;
+    /* Per FFmpeg transcoding.c: outputs = buffer sources (graph output
+     * pads → our sources), inputs = buffer sinks (graph input pads ← our sink) */
+    outputs->name = av_strdup("in0");
+    outputs->filter_ctx = src0Ctx;
     outputs->pad_idx = 0;
-    outputs->next = nullptr;
+    outputs->next = avfilter_inout_alloc();
+    outputs->next->name = av_strdup("in1");
+    outputs->next->filter_ctx = src1Ctx;
+    outputs->next->pad_idx = 0;
+    outputs->next->next = nullptr;
 
-    inputs->name = av_strdup("in0");
-    inputs->filter_ctx = src0Ctx;
+    inputs->name = av_strdup("out");
+    inputs->filter_ctx = sinkCtx;
     inputs->pad_idx = 0;
-    inputs->next = avfilter_inout_alloc();
-    inputs->next->name = av_strdup("in1");
-    inputs->next->filter_ctx = src1Ctx;
-    inputs->next->pad_idx = 0;
-    inputs->next->next = nullptr;
+    inputs->next = nullptr;
 
     // We use overlay filter - but first scale the image
     std::string filterDesc =
@@ -550,13 +552,15 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
     AVFilterInOut* outputs = avfilter_inout_alloc();
     AVFilterInOut* inputs = avfilter_inout_alloc();
 
-    outputs->name = av_strdup("out");
-    outputs->filter_ctx = sinkCtx;
+    /* outputs = buffer sources feeding data INTO the graph
+     * inputs = buffer sinks receiving data FROM the graph */
+    outputs->name = av_strdup("in");
+    outputs->filter_ctx = srcCtx;
     outputs->pad_idx = 0;
     outputs->next = nullptr;
 
-    inputs->name = av_strdup("in");
-    inputs->filter_ctx = srcCtx;
+    inputs->name = av_strdup("out");
+    inputs->filter_ctx = sinkCtx;
     inputs->pad_idx = 0;
     inputs->next = nullptr;
 
@@ -668,12 +672,23 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
     av_buffersrc_add_frame_flags(srcCtx, imgFrame, AV_BUFFERSRC_FLAG_KEEP_REF);
 
     AVFrame* filtFrame = av_frame_alloc();
-    av_buffersink_get_frame(sinkCtx, filtFrame);
+    if (av_buffersink_get_frame(sinkCtx, filtFrame) < 0) {
+        std::cerr << "Failed to get filtered frame" << std::endl;
+        av_frame_free(&filtFrame);
+        avformat_free_context(outFmtCtx);
+        avcodec_free_context(&audEncCtx);
+        avcodec_free_context(&vidEncCtx);
+        avfilter_graph_free(&filterGraph);
+        av_frame_free(&imgFrame);
+        avcodec_free_context(&audDecCtx);
+        avformat_close_input(&audFmtCtx);
+        return false;
+    }
 
     // 8. Main loop: decode audio -> encode audio, reuse filtered frame for video
     AVPacket* pkt = av_packet_alloc();
     AVFrame* audFrame = av_frame_alloc();
-    int64_t totalAudioFrames = 0;
+    int64_t videoFrameCount = 0;
     double currentTime = 0;
     bool audioDone = false;
 
@@ -691,24 +706,21 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
 
         // Decode audio frames
         while (avcodec_receive_frame(audDecCtx, audFrame) == 0) {
-            totalAudioFrames++;
-
             // Calculate current time from audio frame
             currentTime = (double)audFrame->pts *
                           av_q2d(audFmtCtx->streams[aidx]->time_base);
 
-            // Encode video frame: reuse the same filtered image frame
-            // (don't clone/free — avcodec_send_frame doesn't take ownership)
-            filtFrame->pts = totalAudioFrames - 1;
-            avcodec_send_frame(vidEncCtx, filtFrame);
-
-            AVPacket* vidEncPkt = av_packet_alloc();
-            while (avcodec_receive_packet(vidEncCtx, vidEncPkt) == 0) {
-                av_packet_rescale_ts(vidEncPkt, vidEncCtx->time_base, outVidStream->time_base);
-                vidEncPkt->stream_index = outVidStream->index;
-                av_interleaved_write_frame(outFmtCtx, vidEncPkt);
+            // Encode video frame: reuse filtFrame directly with valid pts
+            filtFrame->pts = videoFrameCount++;
+            if (avcodec_send_frame(vidEncCtx, filtFrame) == 0) {
+                AVPacket* vidEncPkt = av_packet_alloc();
+                while (avcodec_receive_packet(vidEncCtx, vidEncPkt) == 0) {
+                    av_packet_rescale_ts(vidEncPkt, vidEncCtx->time_base, outVidStream->time_base);
+                    vidEncPkt->stream_index = outVidStream->index;
+                    av_interleaved_write_frame(outFmtCtx, vidEncPkt);
+                }
+                av_packet_free(&vidEncPkt);
             }
-            av_packet_free(&vidEncPkt);
 
             // Encode audio
             avcodec_send_frame(audEncCtx, audFrame);
@@ -732,7 +744,6 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
     }
 
     // Flush video encoder
-    filtFrame->pts = totalAudioFrames;
     avcodec_send_frame(vidEncCtx, nullptr);
     AVPacket* vidFlushPkt = av_packet_alloc();
     while (avcodec_receive_packet(vidEncCtx, vidFlushPkt) == 0) {
