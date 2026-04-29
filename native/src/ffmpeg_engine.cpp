@@ -663,7 +663,14 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
 
     avformat_write_header(outFmtCtx, nullptr);
 
-    // 7. Main loop: decode audio -> encode audio, reuse filtered frame for video
+    // 7. Push image into filter and get the filtered frame
+    imgFrame->pts = 0;
+    av_buffersrc_add_frame_flags(srcCtx, imgFrame, AV_BUFFERSRC_FLAG_KEEP_REF);
+
+    AVFrame* filtFrame = av_frame_alloc();
+    av_buffersink_get_frame(sinkCtx, filtFrame);
+
+    // 8. Main loop: decode audio -> encode audio, reuse filtered frame for video
     AVPacket* pkt = av_packet_alloc();
     AVFrame* audFrame = av_frame_alloc();
     int64_t totalAudioFrames = 0;
