@@ -165,8 +165,20 @@ std::string getPathInput(const std::string& prompt) {
 }
 
 bool fileExists(const std::string& path) {
+#ifdef _WIN32
+    // On Windows, std::ifstream doesn't handle UTF-8 paths correctly.
+    // Convert UTF-8 path to UTF-16 and use _wstat.
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    if (wlen <= 0) return false;
+    std::wstring wpath(wlen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wpath[0], wlen);
+    wpath.pop_back(); // remove null terminator
+    struct _stat64 st;
+    return _wstat64(wpath.c_str(), &st) == 0;
+#else
     std::ifstream f(path);
     return f.good();
+#endif
 }
 
 // ============== TempFileManager ==============
