@@ -3,6 +3,11 @@
 #include <cstring>
 #include <iostream>
 
+// Suppress FFmpeg library log messages (AAC warnings, etc.)
+static void ffmpegSilentLogCallback(void* avcl, int level, const char* fmt, va_list vl) {
+    // Drop all messages
+}
+
 // ============== 媒体信息获取 ==============
 
 static bool openInputAndFindStreams(const std::string& path, AVFormatContext*& fmtCtx) {
@@ -192,6 +197,10 @@ static AVFrame* decodeImageToFrame(const std::string& path, int targetW, int tar
 bool ffmpegProcessVideo(const std::string& video, const std::string& image,
                          const std::string& output, ProgressCallback cb) {
     // 1. Open input video
+    // Silence FFmpeg library log messages (AAC warnings, etc.) during encoding
+    av_log_set_callback(ffmpegSilentLogCallback);
+    av_log_set_level(AV_LOG_PANIC);
+
     AVFormatContext* vidFmtCtx = nullptr;
     if (!openInputAndFindStreams(video, vidFmtCtx)) {
         std::cerr << "Cannot open video: " << video << std::endl;
@@ -486,6 +495,10 @@ bool ffmpegProcessVideo(const std::string& video, const std::string& image,
     avcodec_free_context(&vidDecCtx);
     avformat_close_input(&vidFmtCtx);
 
+    // Restore default FFmpeg logging
+    av_log_set_callback(NULL);
+    av_log_set_level(AV_LOG_INFO);
+
     return true;
 }
 
@@ -493,6 +506,10 @@ bool ffmpegProcessVideo(const std::string& video, const std::string& image,
 
 bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
                          const std::string& output, int outW, int outH, ProgressCallback cb) {
+    // Silence FFmpeg library log messages (AAC warnings, etc.) during encoding
+    av_log_set_callback(ffmpegSilentLogCallback);
+    av_log_set_level(AV_LOG_PANIC);
+
     // 1. Open audio input
     AVFormatContext* audFmtCtx = nullptr;
     if (!openInputAndFindStreams(audio, audFmtCtx)) {
@@ -628,9 +645,6 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
 #endif
     audEncCtx->sample_fmt = audEncCodec->sample_fmts[0];
     audEncCtx->bit_rate = 192000;
-
-    // Suppress AAC encoder warnings (frame_size, timestamps, etc.)
-    av_opt_set_int(audEncCtx, "log_level_offset", AV_LOG_PANIC, 0);
 
     avcodec_open2(audEncCtx, audEncCodec, nullptr);
 
@@ -782,6 +796,10 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
     av_frame_free(&imgFrame);
     avcodec_free_context(&audDecCtx);
     avformat_close_input(&audFmtCtx);
+
+    // Restore default FFmpeg logging
+    av_log_set_callback(NULL);
+    av_log_set_level(AV_LOG_INFO);
 
     return true;
 }
