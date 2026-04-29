@@ -789,6 +789,17 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
         refreshLine(l);
     } else if (c == '\0') {
         /* Ignore null bytes */
+    } else if ((unsigned char)c >= 0x80) {
+        /* UTF-8 lead byte (0x80-0xFF): insert all bytes of this character */
+        /* Determine UTF-8 sequence length from the lead byte */
+        int charLen = 0;
+        if ((c & 0xE0) == 0xC0) charLen = 2;
+        else if ((c & 0xF0) == 0xE0) charLen = 3;
+        else if ((c & 0xF8) == 0xF0) charLen = 4;
+        if (charLen > 0 && nread >= charLen) {
+            editInsert(l, seq, charLen);
+            refreshLine(l);
+        }
     } else if (isprint((unsigned char)c)) {
         editInsert(l, &c, 1);
         refreshLine(l);
