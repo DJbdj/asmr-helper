@@ -114,7 +114,13 @@ void printMenu(const std::vector<std::string>& items) {
 // Check if a path is a directory
 static bool isDirectory(const std::string& path) {
 #ifdef _WIN32
-    DWORD attrs = GetFileAttributesA(path.c_str());
+    // Convert UTF-8 path to UTF-16 for Windows API
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    if (wlen <= 0) return false;
+    std::wstring wpath(wlen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wpath[0], wlen);
+    wpath.pop_back();
+    DWORD attrs = GetFileAttributesW(wpath.c_str());
     return (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY));
 #else
     struct stat st;
@@ -156,13 +162,13 @@ static void pathCompletion(const char* buf, linenoiseCompletions* lc) {
         std::string nameLower = name;
         for (char& c : nameLower) c = tolower(c);
         if (nameLower.substr(0, basenameLen) == basenameLower) {
-            // Apply file type filter
-            if (!matchesFilter(name, g_fileFilter)) continue;
+            // Always include directories regardless of filter
+            std::string fullPath = platformPathJoin(dirname, name);
+            if (!isDirectory(fullPath) && !matchesFilter(name, g_fileFilter)) continue;
 
             std::string completion = pathPrefix + name;
 
             // If it's a directory, append separator for further navigation
-            std::string fullPath = platformPathJoin(dirname, name);
             if (isDirectory(fullPath)) {
 #ifdef _WIN32
                 completion += "\\";
