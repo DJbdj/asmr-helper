@@ -628,6 +628,10 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
 #endif
     audEncCtx->sample_fmt = audEncCodec->sample_fmts[0];
     audEncCtx->bit_rate = 192000;
+
+    // Suppress AAC encoder warnings (frame_size, timestamps, etc.)
+    av_opt_set_int(audEncCtx, "log_level_offset", AV_LOG_PANIC, 0);
+
     avcodec_open2(audEncCtx, audEncCodec, nullptr);
 
     // 6. Setup output

@@ -213,11 +213,19 @@ static std::string formatTime(double seconds) {
     return oss.str();
 }
 
-// 显示进度条
+// 显示进度条（throttled: only updates when percentage changes)
+static double g_lastPct = -1;
+
 static void showProgressBar(double current, double total) {
     if (total <= 0) return;
 
     double pct = (current / total) * 100.0;
+    int pctInt = (int)pct;
+
+    // Only redraw if percentage changed (reduces flicker/spam)
+    if (pctInt == (int)g_lastPct) return;
+    g_lastPct = pct;
+
     int filled = (int)(pct / 5);  // 20 个槽位
     if (filled > 20) filled = 20;
     if (filled < 0) filled = 0;
