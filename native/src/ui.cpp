@@ -17,6 +17,76 @@
 
 #include "linenoise.h"
 
+// ============== 补全过滤器 ==============
+
+static FileFilter g_fileFilter = FILTER_ALL;
+
+void setFileFilter(FileFilter filter) {
+    g_fileFilter = filter;
+}
+
+static bool hasExtension(const std::string& name, const char* ext) {
+    size_t extLen = (size_t)ext[0];
+    if (name.length() < extLen + 1) return false;
+    return name.compare(name.length() - extLen, extLen, ext + 1) == 0;
+}
+
+static bool matchesFilter(const std::string& name, FileFilter filter) {
+    if (filter == FILTER_ALL) return true;
+
+    std::string lower = name;
+    for (auto& c : lower) c = tolower(c);
+
+    switch (filter) {
+    case FILTER_VIDEO:
+        return hasExtension(lower, ".mp4") || hasExtension(lower, ".mkv") ||
+               hasExtension(lower, ".avi") || hasExtension(lower, ".mov") ||
+               hasExtension(lower, ".webm") || hasExtension(lower, ".flv") ||
+               hasExtension(lower, ".wmv");
+    case FILTER_AUDIO:
+        return hasExtension(lower, ".mp3") || hasExtension(lower, ".wav") ||
+               hasExtension(lower, ".flac") || hasExtension(lower, ".aac") ||
+               hasExtension(lower, ".m4a") || hasExtension(lower, ".ogg");
+    case FILTER_IMAGE:
+        return hasExtension(lower, ".jpg") || hasExtension(lower, ".jpeg") ||
+               hasExtension(lower, ".png") || hasExtension(lower, ".bmp") ||
+               hasExtension(lower, ".gif") || hasExtension(lower, ".webp");
+    default:
+        return true;
+    }
+}
+
+// 生成默认输出文件名
+std::string defaultOutputName(const std::string& inputPath) {
+    std::string name = inputPath;
+
+    // Find last path separator
+    size_t lastSep = name.find_last_of("/\\");
+    if (lastSep != std::string::npos) {
+        name = name.substr(lastSep + 1);
+    }
+
+    // Replace extension with .mp4
+    size_t lastDot = name.find_last_of('.');
+    if (lastDot != std::string::npos) {
+        name = name.substr(0, lastDot);
+    }
+
+    // Remove common temp suffixes like (1), _temp, etc.
+    if (name.size() > 3 && name.compare(name.size() - 3, 3, "(1)") == 0) {
+        name = name.substr(0, name.size() - 3);
+    }
+
+    // Remove trailing spaces/dots
+    while (!name.empty() && (name.back() == ' ' || name.back() == '.')) {
+        name.pop_back();
+    }
+
+    if (name.empty()) name = "output";
+    name += ".mp4";
+    return name;
+}
+
 // ============== 屏幕与 UI ==============
 
 void clearScreen() {
@@ -86,6 +156,9 @@ static void pathCompletion(const char* buf, linenoiseCompletions* lc) {
         std::string nameLower = name;
         for (char& c : nameLower) c = tolower(c);
         if (nameLower.substr(0, basenameLen) == basenameLower) {
+            // Apply file type filter
+            if (!matchesFilter(name, g_fileFilter)) continue;
+
             std::string completion = pathPrefix + name;
 
             // If it's a directory, append separator for further navigation

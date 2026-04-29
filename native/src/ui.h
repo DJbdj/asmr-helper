@@ -26,6 +26,13 @@ std::string getPathInput(const std::string& prompt);
 // 文件检查
 bool fileExists(const std::string& path);
 
+// 路径补全过滤器
+enum FileFilter { FILTER_ALL, FILTER_VIDEO, FILTER_AUDIO, FILTER_IMAGE };
+void setFileFilter(FileFilter filter);
+
+// 生成默认输出文件名（基于输入文件名）
+std::string defaultOutputName(const std::string& inputPath);
+
 // 临时文件管理（使用 /tmp 目录）
 class TempFileManager {
 public:

@@ -56,8 +56,10 @@ int main(int argc, char* argv[]) {
 #endif
 
             // 输入视频
+            setFileFilter(FILTER_VIDEO);
             std::cout << COLOR_CYAN << "  步骤 1: 选择输入视频" << COLOR_RESET << std::endl;
             input_file = getPathInput("视频文件路径（或输入 'q' 返回）: ");
+            setFileFilter(FILTER_ALL);
             if (input_file == "q") continue;
 
             if (!fileExists(input_file)) {
@@ -73,9 +75,10 @@ int main(int argc, char* argv[]) {
             if (image_path.empty()) continue;
 
             // 输出路径
+            std::string default_out = defaultOutputName(input_file);
             std::cout << std::endl << COLOR_CYAN << "  步骤 3: 设置输出文件" << COLOR_RESET << std::endl;
-            output_file = getPathInput("输出文件路径（默认 output.mp4）: ");
-            if (output_file.empty()) output_file = "output.mp4";
+            output_file = getPathInput("输出文件路径（默认 " + default_out + "）: ");
+            if (output_file.empty()) output_file = default_out;
 
             // 确认
             std::cout << std::endl << "  输入视频：" << input_file << std::endl;
@@ -111,9 +114,11 @@ int main(int argc, char* argv[]) {
 #endif
 
             // 输入音频
+            setFileFilter(FILTER_AUDIO);
             std::cout << COLOR_CYAN << "  步骤 1: 选择输入音频" << COLOR_RESET << std::endl;
             std::cout << "  支持格式：mp3, wav, flac, aac, m4a 等" << std::endl;
             input_file = getPathInput("音频文件路径（或输入 'q' 返回）: ");
+            setFileFilter(FILTER_ALL);
             if (input_file == "q") continue;
 
             if (!fileExists(input_file)) {
@@ -142,8 +147,9 @@ int main(int argc, char* argv[]) {
             }
 
             // 输出路径
-            output_file = getUserInput("输出文件路径（默认 output.mp4）: ");
-            if (output_file.empty()) output_file = "output.mp4";
+            std::string default_out2 = defaultOutputName(input_file);
+            output_file = getUserInput("输出文件路径（默认 " + default_out2 + "）: ");
+            if (output_file.empty()) output_file = default_out2;
 
             // 确认
             std::cout << std::endl << "  输入音频：" << input_file << std::endl;
