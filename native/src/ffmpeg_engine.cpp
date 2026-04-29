@@ -543,9 +543,10 @@ bool ffmpegProcessVideo(const std::string& video, const std::string& image,
 
 bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
                          const std::string& output, int outW, int outH, ProgressCallback cb) {
-    // Silence FFmpeg library log messages (AAC warnings, etc.) during encoding
-    av_log_set_callback(ffmpegSilentLogCallback);
-    av_log_set_level(AV_LOG_PANIC);
+    // Silence ALL FFmpeg output: av_log + stderr (encoder warnings bypass av_log)
+    av_log_set_callback(NULL);
+    av_log_set_level(AV_LOG_QUIET);
+    suppressStderr();
 
     // 1. Open audio input
     AVFormatContext* audFmtCtx = nullptr;
