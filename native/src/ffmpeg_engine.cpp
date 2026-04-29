@@ -3,9 +3,44 @@
 #include <cstring>
 #include <iostream>
 
-// Suppress FFmpeg library log messages (AAC warnings, etc.)
-static void ffmpegSilentLogCallback(void* avcl, int level, const char* fmt, va_list vl) {
-    // Drop all messages
+#ifdef _WIN32
+    #include <io.h>
+    #include <fcntl.h>
+#else
+    #include <unistd.h>
+#endif
+
+// Redirect stderr to /dev/null temporarily to suppress FFmpeg warnings
+static int g_savedStderr = -1;
+
+static void suppressStderr() {
+#ifdef _WIN32
+    g_savedStderr = _dup(2);
+    int devnull = _open("nul", _O_WRONLY);
+#else
+    g_savedStderr = dup(2);
+    int devnull = open("/dev/null", O_WRONLY);
+#endif
+    if (devnull >= 0) {
+        dup2(devnull, 2);
+#ifdef _WIN32
+        _close(devnull);
+#else
+        close(devnull);
+#endif
+    }
+}
+
+static void restoreStderr() {
+    if (g_savedStderr >= 0) {
+        dup2(g_savedStderr, 2);
+#ifdef _WIN32
+        _close(g_savedStderr);
+#else
+        close(g_savedStderr);
+#endif
+        g_savedStderr = -1;
+    }
 }
 
 // ============== 媒体信息获取 ==============
@@ -197,9 +232,10 @@ static AVFrame* decodeImageToFrame(const std::string& path, int targetW, int tar
 bool ffmpegProcessVideo(const std::string& video, const std::string& image,
                          const std::string& output, ProgressCallback cb) {
     // 1. Open input video
-    // Silence FFmpeg library log messages (AAC warnings, etc.) during encoding
-    av_log_set_callback(ffmpegSilentLogCallback);
-    av_log_set_level(AV_LOG_PANIC);
+    // Silence ALL FFmpeg output: av_log + stderr (encoder warnings bypass av_log)
+    av_log_set_callback(NULL);
+    av_log_set_level(AV_LOG_QUIET);
+    suppressStderr();
 
     AVFormatContext* vidFmtCtx = nullptr;
     if (!openInputAndFindStreams(video, vidFmtCtx)) {
@@ -495,9 +531,10 @@ bool ffmpegProcessVideo(const std::string& video, const std::string& image,
     avcodec_free_context(&vidDecCtx);
     avformat_close_input(&vidFmtCtx);
 
-    // Restore default FFmpeg logging
+    // Restore default FFmpeg logging and stderr
     av_log_set_callback(NULL);
     av_log_set_level(AV_LOG_INFO);
+    restoreStderr();
 
     return true;
 }
@@ -797,9 +834,10 @@ bool ffmpegAudioToVideo(const std::string& audio, const std::string& image,
     avcodec_free_context(&audDecCtx);
     avformat_close_input(&audFmtCtx);
 
-    // Restore default FFmpeg logging
+    // Restore default FFmpeg logging and stderr
     av_log_set_callback(NULL);
     av_log_set_level(AV_LOG_INFO);
+    restoreStderr();
 
     return true;
 }
