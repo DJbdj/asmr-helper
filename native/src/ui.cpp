@@ -26,9 +26,9 @@ void setFileFilter(FileFilter filter) {
 }
 
 static bool hasExtension(const std::string& name, const char* ext) {
-    size_t extLen = (size_t)ext[0];
-    if (name.length() < extLen + 1) return false;
-    return name.compare(name.length() - extLen, extLen, ext + 1) == 0;
+    size_t extLen = strlen(ext);
+    if (name.length() < extLen) return false;
+    return name.compare(name.length() - extLen, extLen, ext) == 0;
 }
 
 static bool matchesFilter(const std::string& name, FileFilter filter) {
